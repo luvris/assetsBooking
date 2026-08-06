@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+/* ให้ html/body/#app กินเต็ม viewport */
+html,
+body,
+#app {
+  height: 100%;
+}
+
+/* พื้นหลัง webapp สีเทาอ่อนทั้งหน้า */
+body {
+  margin: 0;
+  background-color: #f8fafc; /* bg-slate-50 */
+  color: #0f172a;            /* text-slate-900 */
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ไม่กำหนด width/max-width/margin ให้ #app เลย */
+#app {
+  height: 100%;
+}
