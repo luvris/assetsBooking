@@ -619,34 +619,75 @@ const suppliesMonthlySummary = computed(() => {
 
   for (const tx of supplyTransactions.value) {
     if (!tx.timestamp || !tx.timestamp.toDate) continue;
+    if (tx.type !== 'OUT') continue; // สรุปเฉพาะ OUT สำหรับ breakdown ตามแผนก
 
     const d = tx.timestamp.toDate();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
-    const monthKey = `${year}-${month}`; // เช่น 2026-08
+    const monthKey = `${year}-${month}`;
     const dept = tx.department || 'ไม่ระบุแผนก';
+
+    // หาข้อมูลวัสดุจาก supplies เพื่อเอาชื่อ/หน่วย
+    const supply = supplies.value.find(s => s.id === tx.supplyId);
+    const supplyName = supply?.name || 'ไม่พบชื่อวัสดุ';
+    const unit = supply?.unit || '';
 
     if (!result[monthKey]) {
       result[monthKey] = {
         month: monthKey,
         totalIn: 0,
         totalOut: 0,
-        byDept: {},
+        departments: {},
+      };
+    }
+
+    // รวม OUT รายเดือน
+    const qty = Number(tx.quantity) || 0;
+    result[monthKey].totalOut += qty;
+
+    if (!result[monthKey].departments[dept]) {
+      result[monthKey].departments[dept] = {
+        department: dept,
+        totalOut: 0,
+        items: {}, // key = supplyId
+      };
+    }
+
+    const deptData = result[monthKey].departments[dept];
+    deptData.totalOut += qty;
+
+    if (!deptData.items[tx.supplyId]) {
+      deptData.items[tx.supplyId] = {
+        supplyId: tx.supplyId,
+        name: supplyName,
+        unit,
+        totalQty: 0,
+      };
+    }
+
+    deptData.items[tx.supplyId].totalQty += qty;
+  }
+
+  for (const tx of supplyTransactions.value) {
+    if (!tx.timestamp || !tx.timestamp.toDate) continue;
+    if (tx.type !== 'IN') continue;
+
+    const d = tx.timestamp.toDate();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const monthKey = `${year}-${month}`;
+
+    if (!result[monthKey]) {
+      result[monthKey] = {
+        month: monthKey,
+        totalIn: 0,
+        totalOut: 0,
+        departments: {},
       };
     }
 
     const qty = Number(tx.quantity) || 0;
-
-    if (tx.type === 'IN') {
-      result[monthKey].totalIn += qty;
-    } else if (tx.type === 'OUT') {
-      result[monthKey].totalOut += qty;
-
-      if (!result[monthKey].byDept[dept]) {
-        result[monthKey].byDept[dept] = 0;
-      }
-      result[monthKey].byDept[dept] += qty;
-    }
+    result[monthKey].totalIn += qty;
   }
 
   const summary = Object.values(result)
@@ -654,12 +695,13 @@ const suppliesMonthlySummary = computed(() => {
       month: item.month,
       totalIn: item.totalIn,
       totalOut: item.totalOut,
-      departments: Object.entries(item.byDept).map(([department, total]) => ({
-        department,
-        total,
+      departments: Object.values(item.departments).map(deptData => ({
+        department: deptData.department,
+        totalOut: deptData.totalOut,
+        items: Object.values(deptData.items), // [{ name, unit, totalQty }]
       })),
     }))
-    .sort((a, b) => (a.month < b.month ? 1 : -1)); // เดือนล่าสุดก่อน
+    .sort((a, b) => (a.month < b.month ? 1 : -1));
 
   const months = summary.map(item => item.month);
 

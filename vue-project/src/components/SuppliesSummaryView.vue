@@ -110,14 +110,30 @@ const currentMonthData = computed(() => {
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        <tr v-for="row in currentMonthData.departments" :key="row.department" class="hover:bg-slate-50">
-                            <td class="p-3 text-sm text-slate-800">
-                                {{ row.department }}
-                            </td>
-                            <td class="p-3 text-right text-sm text-slate-800">
-                                {{ row.total }}
-                            </td>
-                        </tr>
+                        <template v-for="dept in currentMonthData.departments" :key="dept.department">
+                            <!-- แถวหัวข้อแผนก + ยอดรวมของแผนก -->
+                            <tr class="bg-white">
+                                <td class="p-3 text-sm font-medium text-slate-800">
+                                    {{ dept.department }}
+                                </td>
+
+                                <td class="p-3 text-right text-sm font-semibold text-slate-800">
+                                    {{ dept.totalOut }}
+                                </td>
+                            </tr>
+
+                            <!-- แถวรายการวัสดุของแต่ละแผนก -->
+                            <tr v-for="item in dept.items" :key="`${dept.department}-${item.supplyId}`"
+                                class="bg-slate-50/50">
+                                <td class="px-3 pb-2 pl-7 text-xs text-slate-600">
+                                    • {{ item.name }}
+                                </td>
+
+                                <td class="px-3 pb-2 text-right text-xs font-medium text-slate-800 whitespace-nowrap">
+                                    {{ item.totalQty }} {{ item.unit }}
+                                </td>
+                            </tr>
+                        </template>
 
                         <tr v-if="currentMonthData.departments.length === 0">
                             <td colspan="2" class="p-4 text-center text-slate-400">
