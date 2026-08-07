@@ -20,6 +20,7 @@ import BorrowView from './components/BorrowView.vue';
 import SuppliesView from './components/SuppliesView.vue';
 import CategoriesView from './components/CategoriesView.vue';
 import SuppliesLogView from './components/SuppliesLogView.vue';
+import SuppliesSummaryView from './components/SuppliesSummaryView.vue';
 
 // --- Dev Mode ---
 const clearAllBorrowLogs = async () => {
@@ -61,6 +62,12 @@ const clearAllSupplyLogs = async () => {
 // --- Reactive State ---
 const currentTab = ref('dashboard'); // 'dashboard', 'assets', 'borrow', 'supplies', 'suppliesLog', 'suppliesSummary', 'categories'
 
+const showSuppliesMenu = ref(false);
+// helper เวลาเปลี่ยนหน้า
+const setTab = (tab) => {
+  currentTab.value = tab;
+  showSuppliesMenu.value = false;
+};
 
 // Data Lists from Firestore
 const assets = ref([]);
@@ -602,6 +609,62 @@ const submitSupplyTx = async () => {
     console.error('Error recording supply transaction:', error);
   }
 };
+
+// สรุปยอดวัสดุแบบรายเดือน
+// - totalIn  : ยอดเติมเข้าทั้งเดือน (IN)
+// - totalOut : ยอดเบิกใช้ทั้งเดือน (OUT)
+// - departments : OUT แยกตามแผนก
+const suppliesMonthlySummary = computed(() => {
+  const result = {};
+
+  for (const tx of supplyTransactions.value) {
+    if (!tx.timestamp || !tx.timestamp.toDate) continue;
+
+    const d = tx.timestamp.toDate();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const monthKey = `${year}-${month}`; // เช่น 2026-08
+    const dept = tx.department || 'ไม่ระบุแผนก';
+
+    if (!result[monthKey]) {
+      result[monthKey] = {
+        month: monthKey,
+        totalIn: 0,
+        totalOut: 0,
+        byDept: {},
+      };
+    }
+
+    const qty = Number(tx.quantity) || 0;
+
+    if (tx.type === 'IN') {
+      result[monthKey].totalIn += qty;
+    } else if (tx.type === 'OUT') {
+      result[monthKey].totalOut += qty;
+
+      if (!result[monthKey].byDept[dept]) {
+        result[monthKey].byDept[dept] = 0;
+      }
+      result[monthKey].byDept[dept] += qty;
+    }
+  }
+
+  const summary = Object.values(result)
+    .map(item => ({
+      month: item.month,
+      totalIn: item.totalIn,
+      totalOut: item.totalOut,
+      departments: Object.entries(item.byDept).map(([department, total]) => ({
+        department,
+        total,
+      })),
+    }))
+    .sort((a, b) => (a.month < b.month ? 1 : -1)); // เดือนล่าสุดก่อน
+
+  const months = summary.map(item => item.month);
+
+  return { months, summary };
+});
 </script>
 
 <template>
@@ -617,8 +680,9 @@ const submitSupplyTx = async () => {
             IT Asset
           </span>
         </div>
+
         <nav class="flex flex-wrap gap-2">
-          <button @click="currentTab = 'dashboard'" :class="[
+          <button @click="setTab('dashboard')" :class="[
             'px-3 py-2 rounded-lg text-sm font-medium transition',
             currentTab === 'dashboard'
               ? 'bg-white text-indigo-700 shadow-inner'
@@ -626,7 +690,8 @@ const submitSupplyTx = async () => {
           ]">
             ภาพรวมอุปกรณ์
           </button>
-          <button @click="currentTab = 'assets'" :class="[
+
+          <button @click="setTab('assets')" :class="[
             'px-3 py-2 rounded-lg text-sm font-medium transition',
             currentTab === 'assets'
               ? 'bg-white text-indigo-700 shadow-inner'
@@ -634,7 +699,8 @@ const submitSupplyTx = async () => {
           ]">
             ครุภัณฑ์/อุปกรณ์ไอที
           </button>
-          <button @click="currentTab = 'borrow'" :class="[
+
+          <button @click="setTab('borrow')" :class="[
             'px-3 py-2 rounded-lg text-sm font-medium transition',
             currentTab === 'borrow'
               ? 'bg-white text-indigo-700 shadow-inner'
@@ -642,25 +708,34 @@ const submitSupplyTx = async () => {
           ]">
             ระบบยืม–คืนอุปกรณ์
           </button>
-          <button @click="currentTab = 'supplies'" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
-            currentTab === 'supplies'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
-          ]">
-            คลังวัสดุสิ้นเปลือง
-          </button>
 
-          <button @click="currentTab = 'suppliesLog'" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
-            currentTab === 'suppliesLog'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
-          ]">
-            ประวัติการเบิกวัสดุ
-          </button>
+          <!-- Dropdown สำหรับเมนูวัสดุสิ้นเปลือง -->
+          <div class="relative">
+            <button @click="showSuppliesMenu = !showSuppliesMenu" :class="[
+              'px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1',
+              ['supplies', 'suppliesLog', 'suppliesSummary'].includes(currentTab)
+                ? 'bg-white text-indigo-700 shadow-inner'
+                : 'bg-indigo-600 hover:bg-indigo-500'
+            ]">
+              จัดการวัสดุสิ้นเปลือง
+              <span class="text-[10px]">▾</span>
+            </button>
 
-          <button @click="currentTab = 'categories'" :class="[
+            <div v-if="showSuppliesMenu"
+              class="absolute right-0 mt-2 w-60 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 z-20">
+              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('supplies')">
+                คลังวัสดุสิ้นเปลือง
+              </button>
+              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('suppliesLog')">
+                ประวัติการเบิกวัสดุ
+              </button>
+              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('suppliesSummary')">
+                สรุปยอดใช้วัสดุ (รายเดือน/แผนก)
+              </button>
+            </div>
+          </div>
+
+          <button @click="setTab('categories')" :class="[
             'px-3 py-2 rounded-lg text-sm font-medium transition',
             currentTab === 'categories'
               ? 'bg-white text-indigo-700 shadow-inner'
@@ -696,6 +771,8 @@ const submitSupplyTx = async () => {
 
       <SuppliesLogView v-else-if="currentTab === 'suppliesLog'" :logs="supplyLogs"
         :clear-all-supply-logs="clearAllSupplyLogs" />
+
+      <SuppliesSummaryView v-else-if="currentTab === 'suppliesSummary'" :monthly-summary="suppliesMonthlySummary" />
 
       <CategoriesView v-else-if="currentTab === 'categories'" :categories="categories"
         @open-category-modal="() => (showCategoryModal = true)" @delete-category="deleteCategory" />

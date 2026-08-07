@@ -4,6 +4,7 @@ const props = defineProps({
   categories: { type: Array, required: true },
   supplySearch: { type: String, required: true },
   getCategoryName: { type: Function, required: true },
+  monthlySummary: { type: Object, required: true, },
 });
 
 const emits = defineEmits([
@@ -21,22 +22,17 @@ const emits = defineEmits([
           คลังวัสดุสิ้นเปลือง
         </h2>
       </div>
-      <button
-        @click="$emit('open-supply-modal')"
-        class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 shadow-sm transition"
-      >
+      <button @click="$emit('open-supply-modal')"
+        class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 shadow-sm transition">
         เพิ่มรายการวัสดุ
       </button>
     </div>
 
-    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-4 justify-between">
-      <input
-        :value="supplySearch"
-        @input="$emit('update-supply-search', $event.target.value)"
-        type="text"
+    <div
+      class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-4 justify-between">
+      <input :value="supplySearch" @input="$emit('update-supply-search', $event.target.value)" type="text"
         placeholder="ค้นหาตามชื่อวัสดุ..."
-        class="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      />
+        class="w-full sm:w-80 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -51,11 +47,7 @@ const emits = defineEmits([
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-          <tr
-            v-for="item in supplies"
-            :key="item.id"
-            class="hover:bg-slate-50 transition"
-          >
+          <tr v-for="item in supplies" :key="item.id" class="hover:bg-slate-50 transition">
             <td class="p-3 font-medium text-slate-800">
               {{ item.name }}
             </td>
@@ -63,10 +55,8 @@ const emits = defineEmits([
               {{ getCategoryName(item.categoryId) }}
             </td>
             <td class="p-3">
-              <span
-                class="font-bold"
-                :class="item.quantity <= item.minThreshold ? 'text-rose-600' : 'text-emerald-600'"
-              >
+              <span class="font-bold"
+                :class="item.quantity <= item.minThreshold ? 'text-rose-600' : 'text-emerald-600'">
                 {{ item.quantity }} {{ item.unit }}
               </span>
             </td>
@@ -74,22 +64,16 @@ const emits = defineEmits([
               {{ item.minThreshold }} {{ item.unit }}
             </td>
             <td class="p-3 text-right space-x-2">
-              <button
-                @click="$emit('open-supply-tx-modal', { id: item.id, type: 'IN' })"
-                class="px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-semibold hover:bg-emerald-100"
-              >
+              <button @click="$emit('open-supply-tx-modal', { id: item.id, type: 'IN' })"
+                class="px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-xs font-semibold hover:bg-emerald-100">
                 เติมสต็อก
               </button>
-              <button
-                @click="$emit('open-supply-tx-modal', { id: item.id, type: 'OUT' })"
-                class="px-2 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs font-semibold hover:bg-rose-100"
-              >
+              <button @click="$emit('open-supply-tx-modal', { id: item.id, type: 'OUT' })"
+                class="px-2 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs font-semibold hover:bg-rose-100">
                 เบิกใช้
               </button>
-              <button
-                @click="$emit('open-supply-modal', item)"
-                class="text-indigo-600 hover:underline text-xs font-medium ml-2"
-              >
+              <button @click="$emit('open-supply-modal', item)"
+                class="text-indigo-600 hover:underline text-xs font-medium ml-2">
                 แก้ไข
               </button>
             </td>
