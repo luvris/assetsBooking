@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, computed, inject } from 'vue';
 import {
   collection,
   onSnapshot,
@@ -122,11 +122,12 @@ const borrowForm = reactive({
 
 const supplyTxForm = reactive({
   supplyId: '',
-  type: 'IN', // 'IN' or 'OUT'
+  type: 'IN',
   quantity: 1,
   note: '',
   requesterName: '',
   department: '',
+  workOrderNo: '',
 });
 
 // Search & Filter
@@ -167,6 +168,20 @@ const stats = computed(() => {
 
   return { totalAssets, availableAssets, borrowedAssets, maintenanceAssets, lowSupplies };
 });
+
+const keycloak = inject('keycloak');
+
+const userDisplayName = computed(() => {
+  return keycloak?.tokenParsed?.name
+    || keycloak?.tokenParsed?.preferred_username
+    || 'ผู้ใช้งาน';
+});
+
+const logout = () => {
+  keycloak.logout({
+    redirectUri: window.location.origin,
+  });
+};
 
 const filteredAssets = computed(() => {
   return assets.value.filter(item => {
@@ -312,6 +327,7 @@ const supplyLogs = computed(() => {
         requesterName: tx.requesterName || '',
         department: tx.department || '',
         timestamp: tx.timestamp || null,
+        workOrderNo: tx.workOrderNo || '',
         // join จาก stock
         supplyName: supply?.name || '',
         unit: supply?.unit || '',
@@ -584,6 +600,7 @@ const openSupplyTxModal = (supplyId, type) => {
   supplyTxForm.note = '';
   supplyTxForm.requesterName = '';
   supplyTxForm.department = '';
+  supplyTxForm.workOrderNo = '';
   supplyTxModal.value = true;
 };
 
@@ -712,7 +729,8 @@ const suppliesMonthlySummary = computed(() => {
 <template>
   <div class="min-h-screen flex flex-col font-sans">
     <!-- Navbar -->
-    <header class="bg-indigo-700 text-white shadow-md">
+    <header
+      class="bg-gradient-to-r from-slate-900 via-indigo-900 to-violet-900 text-white shadow-lg border-b border-white/10">
       <div class="w-full px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div class="flex items-center gap-3">
           <span class="text-2xl font-bold tracking-tight">
@@ -725,28 +743,28 @@ const suppliesMonthlySummary = computed(() => {
 
         <nav class="flex flex-wrap gap-2">
           <button @click="setTab('dashboard')" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
+            'px-3 py-2 rounded-lg text-sm font-medium transition duration-200',
             currentTab === 'dashboard'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
+              ? 'bg-white text-indigo-800 shadow-md'
+              : 'bg-white/10 text-indigo-50 hover:bg-white/20'
           ]">
             ภาพรวมอุปกรณ์
           </button>
 
           <button @click="setTab('assets')" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
+            'px-3 py-2 rounded-lg text-sm font-medium transition duration-200',
             currentTab === 'assets'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
+              ? 'bg-white text-indigo-800 shadow-md'
+              : 'bg-white/10 text-indigo-50 hover:bg-white/20'
           ]">
             ครุภัณฑ์/อุปกรณ์ไอที
           </button>
 
           <button @click="setTab('borrow')" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
+            'px-3 py-2 rounded-lg text-sm font-medium transition duration-200',
             currentTab === 'borrow'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
+              ? 'bg-white text-indigo-800 shadow-md'
+              : 'bg-white/10 text-indigo-50 hover:bg-white/20'
           ]">
             ระบบยืม–คืนอุปกรณ์
           </button>
@@ -754,37 +772,55 @@ const suppliesMonthlySummary = computed(() => {
           <!-- Dropdown สำหรับเมนูวัสดุสิ้นเปลือง -->
           <div class="relative">
             <button @click="showSuppliesMenu = !showSuppliesMenu" :class="[
-              'px-3 py-2 rounded-lg text-sm font-medium transition flex items-center gap-1',
+              'px-3 py-2 rounded-lg text-sm font-medium transition duration-200 flex items-center gap-1',
               ['supplies', 'suppliesLog', 'suppliesSummary'].includes(currentTab)
-                ? 'bg-white text-indigo-700 shadow-inner'
-                : 'bg-indigo-600 hover:bg-indigo-500'
+                ? 'bg-white text-indigo-800 shadow-md'
+                : 'bg-white/10 text-indigo-50 hover:bg-white/20'
             ]">
               จัดการวัสดุสิ้นเปลือง
               <span class="text-[10px]">▾</span>
             </button>
 
             <div v-if="showSuppliesMenu"
-              class="absolute right-0 mt-2 w-60 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 z-20">
-              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('supplies')">
+              class="absolute right-0 mt-2 w-60 overflow-hidden bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 z-20">
+              <button @click="setTab('supplies')"
+                class="w-full px-4 py-3 text-left text-sm hover:bg-indigo-50 hover:text-indigo-700 transition">
                 คลังวัสดุสิ้นเปลือง
               </button>
-              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('suppliesLog')">
+
+              <button @click="setTab('suppliesLog')"
+                class="w-full px-4 py-3 text-left text-sm hover:bg-indigo-50 hover:text-indigo-700 transition">
                 ประวัติการเบิกวัสดุ
               </button>
-              <button class="w-full text-left px-3 py-2 text-sm hover:bg-slate-100" @click="setTab('suppliesSummary')">
+
+              <button @click="setTab('suppliesSummary')"
+                class="w-full px-4 py-3 text-left text-sm hover:bg-indigo-50 hover:text-indigo-700 transition">
                 สรุปยอดใช้วัสดุ (รายเดือน/แผนก)
               </button>
             </div>
           </div>
 
           <button @click="setTab('categories')" :class="[
-            'px-3 py-2 rounded-lg text-sm font-medium transition',
+            'px-3 py-2 rounded-lg text-sm font-medium transition duration-200',
             currentTab === 'categories'
-              ? 'bg-white text-indigo-700 shadow-inner'
-              : 'bg-indigo-600 hover:bg-indigo-500'
+              ? 'bg-white text-indigo-800 shadow-md'
+              : 'bg-white/10 text-indigo-50 hover:bg-white/20'
           ]">
             หมวดหมู่
           </button>
+
+          <div class="flex items-center gap-2">
+            <div class="hidden sm:block text-right">
+              <div class="text-sm font-medium text-white">
+                {{ userDisplayName }}
+              </div>
+            </div>
+
+            <button @click="logout"
+              class="px-3 py-2 rounded-lg text-sm font-medium bg-rose-600 hover:bg-rose-700 text-white transition">
+              ออกจากระบบ
+            </button>
+          </div>
         </nav>
       </div>
     </header>
@@ -1119,6 +1155,16 @@ const suppliesMonthlySummary = computed(() => {
             </label>
             <input v-model.number="supplyTxForm.quantity" type="number" min="1"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+
+          <!-- แสดงเฉพาะเมื่อเป็นการเบิกวัสดุ (OUT) -->
+          <div v-if="supplyTxForm.type === 'OUT'">
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              หมายเลขใบงานซ่อม <span class="text-rose-500">*</span>
+            </label>
+            <input v-model="supplyTxForm.workOrderNo" type="text"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น WO-2026-0001" />
           </div>
 
           <div>

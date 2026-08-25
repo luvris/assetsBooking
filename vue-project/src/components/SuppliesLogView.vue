@@ -32,6 +32,7 @@ const props = defineProps({
                         <th class="p-3 text-right">จำนวน</th>
                         <th class="p-3">ผู้เบิก</th>
                         <th class="p-3">หน่วยงาน / แผนก</th>
+                        <th class="p-3">หมายเลขใบงานซ่อม</th>
                         <th class="p-3">หมายเหตุ</th>
                     </tr>
                 </thead>
@@ -89,6 +90,12 @@ const props = defineProps({
                                 {{ log.department || '-' }}
                             </span>
                         </td>
+                        <!-- หมายเหตุ -->
+                        <td class="p-3">
+                            <span class="text-xs text-slate-600">
+                                {{ log.workOrderNo || '-' }}
+                            </span>
+                        </td>
 
                         <!-- หมายเหตุ -->
                         <td class="p-3">
@@ -99,7 +106,7 @@ const props = defineProps({
                     </tr>
 
                     <tr v-if="logs.length === 0">
-                        <td colspan="7" class="p-6 text-center text-slate-400">
+                        <td colspan="8" class="p-6 text-center text-slate-400">
                             ยังไม่มีประวัติการเบิก/เติมวัสดุ
                         </td>
                     </tr>
