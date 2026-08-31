@@ -617,6 +617,110 @@ app.post('/api/borrows', async (req, res) => {
   }
 });
 
+app.post('/api/borrows/:id/return', async (req, res) => {
+  const borrowId = Number(req.params.id);
+  const receivedByCid = String(req.body.receivedByCid || '').trim() || null;
+  const returnNote = String(req.body.returnNote || '').trim() || null;
+
+  if (!Number.isInteger(borrowId) || borrowId <= 0) {
+    return res.status(400).json({
+      message: 'รหัสรายการยืมไม่ถูกต้อง',
+    });
+  }
+
+  let conn;
+  let transactionStarted = false;
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    transactionStarted = true;
+
+    const borrowRows = await conn.query(
+      `SELECT
+        br.id,
+        br.asset_id,
+        br.borrower_cid,
+        br.borrower_name,
+        br.returned_at,
+        a.asset_code,
+        a.name AS asset_name,
+        a.status AS asset_status
+      FROM borrow_return AS br
+      INNER JOIN inventory_assets AS a
+        ON a.id = br.asset_id
+      WHERE br.id = ?
+      FOR UPDATE`,
+      [borrowId],
+    );
+
+    const borrow = borrowRows[0];
+
+    if (!borrow) {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(404).json({
+        message: 'ไม่พบรายการยืม',
+      });
+    }
+
+    if (borrow.returned_at) {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(409).json({
+        message: 'รายการนี้ถูกคืนแล้ว',
+      });
+    }
+
+    await conn.query(
+      `UPDATE borrow_return
+       SET
+         returned_at = CURRENT_TIMESTAMP,
+         received_by_cid = ?,
+         return_note = ?
+       WHERE id = ?`,
+      [receivedByCid, returnNote, borrowId],
+    );
+
+    await conn.query(
+      `UPDATE inventory_assets
+       SET status = 'AVAILABLE'
+       WHERE id = ?`,
+      [borrow.asset_id],
+    );
+
+    await conn.commit();
+    transactionStarted = false;
+
+    res.json({
+      id: borrowId,
+      assetId: Number(borrow.asset_id),
+      assetCode: borrow.asset_code,
+      assetName: borrow.asset_name,
+      borrowerCid: borrow.borrower_cid,
+      borrowerName: borrow.borrower_name,
+      receivedByCid,
+      returnNote,
+      status: 'AVAILABLE',
+      message: 'บันทึกการคืนครุภัณฑ์สำเร็จ',
+    });
+  } catch (error) {
+    if (conn && transactionStarted) {
+      await conn.rollback();
+    }
+
+    console.error('Return borrow failed:', error.message);
+
+    res.status(500).json({
+      message: 'ไม่สามารถบันทึกการคืนครุภัณฑ์ได้',
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 app.listen(Number(process.env.PORT || 3000), () => {
     console.log(`Backend API is running at http://localhost:${process.env.PORT || 3000}`);
 });
