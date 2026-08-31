@@ -448,6 +448,175 @@ app.post('/api/supplies', async (req, res) => {
     }
 });
 
+app.get('/api/borrows', async (req, res) => {
+  let conn;
+
+  try {
+    conn = await pool.getConnection();
+
+    const rows = await conn.query(`
+      SELECT
+        br.id,
+        br.asset_id AS assetId,
+        a.asset_code AS assetCode,
+        a.name AS assetName,
+        br.borrower_cid AS borrowerCid,
+        br.borrower_name AS borrowerName,
+        br.department,
+        br.purpose,
+        br.borrowed_at AS borrowedAt,
+        br.due_at AS dueAt,
+        br.returned_at AS returnedAt,
+        br.received_by_cid AS receivedByCid,
+        br.return_note AS returnNote,
+        br.created_at AS createdAt
+      FROM borrow_return AS br
+      INNER JOIN inventory_assets AS a
+        ON a.id = br.asset_id
+      ORDER BY br.borrowed_at DESC
+    `);
+
+    res.json(rows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      assetId: Number(row.assetId),
+    })));
+  } catch (error) {
+    console.error('Get borrows failed:', error.message);
+
+    res.status(500).json({
+      message: 'ไม่สามารถโหลดประวัติยืม–คืนได้',
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.post('/api/borrows', async (req, res) => {
+  const assetId = Number(req.body.assetId);
+  const borrowerCid = String(req.body.borrowerCid || '').trim();
+  const borrowerName = String(req.body.borrowerName || '').trim();
+  const department = String(req.body.department || '').trim() || null;
+  const purpose = String(req.body.purpose || '').trim() || null;
+  const dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
+
+  if (!Number.isInteger(assetId) || assetId <= 0) {
+    return res.status(400).json({
+      message: 'รหัสครุภัณฑ์ไม่ถูกต้อง',
+    });
+  }
+
+  if (!borrowerCid) {
+    return res.status(400).json({
+      message: 'กรุณาระบุ CID ผู้ยืม',
+    });
+  }
+
+  if (!borrowerName) {
+    return res.status(400).json({
+      message: 'กรุณาระบุชื่อผู้ยืม',
+    });
+  }
+
+  if (dueAt && Number.isNaN(dueAt.getTime())) {
+    return res.status(400).json({
+      message: 'วันครบกำหนดคืนไม่ถูกต้อง',
+    });
+  }
+
+  let conn;
+  let transactionStarted = false;
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    transactionStarted = true;
+
+    const assetRows = await conn.query(
+      `SELECT id, asset_code, name, status
+       FROM inventory_assets
+       WHERE id = ?
+       FOR UPDATE`,
+      [assetId],
+    );
+
+    const asset = assetRows[0];
+
+    if (!asset) {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(404).json({
+        message: 'ไม่พบครุภัณฑ์',
+      });
+    }
+
+    if (asset.status !== 'AVAILABLE') {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(409).json({
+        message: 'ครุภัณฑ์นี้ไม่พร้อมให้ยืม',
+      });
+    }
+
+    const insertResult = await conn.query(
+      `INSERT INTO borrow_return (
+        asset_id,
+        borrower_cid,
+        borrower_name,
+        department,
+        purpose,
+        due_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        assetId,
+        borrowerCid,
+        borrowerName,
+        department,
+        purpose,
+        dueAt,
+      ],
+    );
+
+    await conn.query(
+      `UPDATE inventory_assets
+       SET status = 'BORROWED'
+       WHERE id = ?`,
+      [assetId],
+    );
+
+    await conn.commit();
+    transactionStarted = false;
+
+    res.status(201).json({
+      id: Number(insertResult.insertId),
+      assetId,
+      assetCode: asset.asset_code,
+      assetName: asset.name,
+      borrowerCid,
+      borrowerName,
+      department,
+      purpose,
+      dueAt,
+      status: 'BORROWED',
+      message: 'บันทึกการยืมครุภัณฑ์สำเร็จ',
+    });
+  } catch (error) {
+    if (conn && transactionStarted) {
+      await conn.rollback();
+    }
+
+    console.error('Create borrow failed:', error.message);
+
+    res.status(500).json({
+      message: 'ไม่สามารถบันทึกการยืมครุภัณฑ์ได้',
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 app.listen(Number(process.env.PORT || 3000), () => {
     console.log(`Backend API is running at http://localhost:${process.env.PORT || 3000}`);
 });
