@@ -1,18 +1,6 @@
 <script setup>
-import { ref, reactive, onMounted, computed, inject } from 'vue';
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  increment,
-  getDocs,
-  query,
-} from 'firebase/firestore';
-import { db } from './firebase/firebase.js';
+import { computed, inject, onMounted, reactive, ref } from 'vue';
+import { api } from './services/api.js';
 
 import DashboardView from './components/DashboardView.vue';
 import AssetsView from './components/AssetsView.vue';
@@ -22,61 +10,23 @@ import CategoriesView from './components/CategoriesView.vue';
 import SuppliesLogView from './components/SuppliesLogView.vue';
 import SuppliesSummaryView from './components/SuppliesSummaryView.vue';
 
-// --- Dev Mode ---
-const clearAllBorrowLogs = async () => {
-  if (!confirm('ลบประวัติยืม–คืนอุปกรณ์ทั้งหมดหรือไม่? (สำหรับทดสอบเท่านั้น)')) return;
-
-  try {
-    const q = query(collection(db, 'borrow_return'));
-    const snap = await getDocs(q);
-
-    const deletions = [];
-    snap.forEach(docSnap => {
-      deletions.push(deleteDoc(doc(db, 'borrow_return', docSnap.id)));
-    });
-
-    await Promise.all(deletions);
-  } catch (e) {
-    console.error('Error clearing borrow logs:', e);
-  }
-};
-
-const clearAllSupplyLogs = async () => {
-  if (!confirm('ลบประวัติการเบิก/เติมวัสดุสิ้นเปลืองทั้งหมดหรือไม่? (สำหรับทดสอบเท่านั้น)')) return;
-
-  try {
-    const q = query(collection(db, 'supplies_transactions'));
-    const snap = await getDocs(q);
-
-    const deletions = [];
-    snap.forEach(docSnap => {
-      deletions.push(deleteDoc(doc(db, 'supplies_transactions', docSnap.id)));
-    });
-
-    await Promise.all(deletions);
-  } catch (e) {
-    console.error('Error clearing supply logs:', e);
-  }
-};
-
-// --- Reactive State ---
-const currentTab = ref('dashboard'); // 'dashboard', 'assets', 'borrow', 'supplies', 'suppliesLog', 'suppliesSummary', 'categories'
-
+const currentTab = ref('dashboard');
 const showSuppliesMenu = ref(false);
-// helper เวลาเปลี่ยนหน้า
+
 const setTab = (tab) => {
   currentTab.value = tab;
   showSuppliesMenu.value = false;
 };
 
-// Data Lists from Firestore
+const loading = ref(false);
+const loadError = ref('');
+
 const assets = ref([]);
 const borrowRecords = ref([]);
 const supplies = ref([]);
 const supplyTransactions = ref([]);
 const categories = ref([]);
 
-// Modals
 const showAssetModal = ref(false);
 const showSupplyModal = ref(false);
 const showCategoryModal = ref(false);
@@ -86,38 +36,41 @@ const supplyTxModal = ref(false);
 const editingAssetId = ref(null);
 const editingSupplyId = ref(null);
 
-// Forms
 const assetForm = reactive({
   name: '',
   brand: '',
+  model: '',
   assetCode: '',
   serialNumber: '',
   categoryId: '',
-  repairTicket: '',
-  status: 'Available'
+  location: '',
+  note: '',
+  status: 'AVAILABLE',
 });
 
 const supplyForm = reactive({
+  itemCode: '',
   name: '',
   categoryId: '',
   quantity: 0,
-  minThreshold: 5,
-  unit: 'pcs'
+  minimumQuantity: 5,
+  unit: 'pcs',
+  location: '',
+  note: '',
 });
 
 const categoryForm = reactive({
   name: '',
-  type: 'asset' // 'asset' or 'supply'
+  type: 'ASSET',
 });
 
 const borrowForm = reactive({
   assetId: '',
+  borrowerCid: 'TEMP-USER',
   borrowerName: '',
-  jobTask: '',
-  location: '',
-  borrowDate: '',
+  department: '',
+  purpose: '',
   dueDate: '',
-  notes: '',
 });
 
 const supplyTxForm = reactive({
@@ -128,160 +81,552 @@ const supplyTxForm = reactive({
   requesterName: '',
   department: '',
   workOrderNo: '',
+  createdByCid: 'TEMP-USER',
 });
 
-// Search & Filter
 const assetSearch = ref('');
 const assetStatusFilter = ref('');
 const supplySearch = ref('');
 
-// --- Firestore Realtime Listeners ---
-onMounted(() => {
-  onSnapshot(collection(db, 'categories'), (snapshot) => {
-    categories.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  });
+const uiStatusFromDb = (status) => {
+  const statusMap = {
+    AVAILABLE: 'Available',
+    BORROWED: 'Borrowed',
+    REPAIR: 'Maintenance',
+    DISPOSED: 'Retired',
+  };
 
-  onSnapshot(collection(db, 'inventory_assets'), (snapshot) => {
-    assets.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  });
+  return statusMap[status] || status || 'Available';
+};
 
-  onSnapshot(collection(db, 'borrow_return'), (snapshot) => {
-    borrowRecords.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  });
+const dbStatusFromUi = (status) => {
+  const statusMap = {
+    Available: 'AVAILABLE',
+    Borrowed: 'BORROWED',
+    Maintenance: 'REPAIR',
+    Retired: 'DISPOSED',
+  };
 
-  onSnapshot(collection(db, 'supplies_stock'), (snapshot) => {
-    supplies.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  });
+  return statusMap[status] || status || 'AVAILABLE';
+};
 
-  onSnapshot(collection(db, 'supplies_transactions'), (snapshot) => {
-    supplyTransactions.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  });
+const normalizeCategory = (category) => ({
+  ...category,
+  id: Number(category.id),
+  type: String(category.type || '').toLowerCase(),
 });
 
-// --- Computed: Stats ---
+const normalizeAsset = (asset) => ({
+  ...asset,
+  id: Number(asset.id),
+  categoryId: asset.categoryId === null || asset.categoryId === undefined
+    ? ''
+    : Number(asset.categoryId),
+  status: uiStatusFromDb(asset.status),
+});
+
+const normalizeSupply = (supply) => ({
+  ...supply,
+  id: Number(supply.id),
+  categoryId: supply.categoryId === null || supply.categoryId === undefined
+    ? ''
+    : Number(supply.categoryId),
+  quantity: Number(supply.quantity || 0),
+  minThreshold: Number(supply.minimumQuantity ?? supply.minThreshold ?? 0),
+  minimumQuantity: Number(supply.minimumQuantity ?? supply.minThreshold ?? 0),
+});
+
+const normalizeBorrow = (record) => ({
+  ...record,
+  id: Number(record.id),
+  assetId: Number(record.assetId),
+  dueDate: record.dueAt || record.dueDate || '',
+  returnedAt: record.returnedAt || null,
+  status: record.returnedAt ? 'Returned' : 'Active',
+  jobTask: record.purpose || record.jobTask || '',
+  location: record.location || '',
+  notes: record.returnNote || record.notes || '',
+});
+
+const normalizeSupplyTransaction = (transaction) => ({
+  ...transaction,
+  id: Number(transaction.id),
+  supplyId: Number(transaction.supplyId),
+  type: transaction.transactionType || transaction.type,
+  timestamp: transaction.createdAt || transaction.timestamp || null,
+  workOrderNo: transaction.workOrderNo || '',
+});
+
+const loadData = async () => {
+  loading.value = true;
+  loadError.value = '';
+
+  try {
+    const [categoryData, assetData, supplyData] = await Promise.all([
+      api.getCategories(),
+      api.getAssets(),
+      api.getSupplies(),
+    ]);
+
+    categories.value = categoryData.map(normalizeCategory);
+    assets.value = assetData.map(normalizeAsset);
+    supplies.value = supplyData.map(normalizeSupply);
+
+    try {
+      const borrowData = await api.getBorrows();
+      borrowRecords.value = borrowData.map(normalizeBorrow);
+    } catch (error) {
+      console.warn('Borrow API is not ready:', error.message);
+      borrowRecords.value = [];
+    }
+
+    try {
+      const transactionData = await api.getSupplyTransactions();
+      supplyTransactions.value = transactionData.map(normalizeSupplyTransaction);
+    } catch (error) {
+      console.warn('Supply transaction API is not ready:', error.message);
+      supplyTransactions.value = [];
+    }
+  } catch (error) {
+    console.error('Load data failed:', error);
+    loadError.value = error.message || 'ไม่สามารถโหลดข้อมูลจากระบบได้';
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(loadData);
+
 const stats = computed(() => {
   const totalAssets = assets.value.length;
-  const availableAssets = assets.value.filter(a => a.status === 'Available').length;
-  const borrowedAssets = assets.value.filter(a => a.status === 'Borrowed').length;
-  const maintenanceAssets = assets.value.filter(a => a.status === 'Maintenance').length;
-  const lowSupplies = supplies.value.filter(s => s.quantity <= s.minThreshold).length;
+  const availableAssets = assets.value.filter((asset) => asset.status === 'Available').length;
+  const borrowedAssets = assets.value.filter((asset) => asset.status === 'Borrowed').length;
+  const maintenanceAssets = assets.value.filter((asset) => asset.status === 'Maintenance').length;
+  const lowSupplies = supplies.value.filter(
+    (supply) => Number(supply.quantity) <= Number(supply.minThreshold),
+  ).length;
 
-  return { totalAssets, availableAssets, borrowedAssets, maintenanceAssets, lowSupplies };
+  return {
+    totalAssets,
+    availableAssets,
+    borrowedAssets,
+    maintenanceAssets,
+    lowSupplies,
+  };
 });
 
-const keycloak = inject('keycloak');
+const keycloak = inject('keycloak', null);
 
-const userDisplayName = computed(() => {
-  return keycloak?.tokenParsed?.name
-    || keycloak?.tokenParsed?.preferred_username
-    || 'ผู้ใช้งาน';
-});
+const userDisplayName = computed(() => (
+  keycloak?.tokenParsed?.name
+  || keycloak?.tokenParsed?.preferred_username
+  || 'ผู้ใช้งาน'
+));
 
 const logout = () => {
-  keycloak.logout({
-    redirectUri: window.location.origin,
-  });
+  if (keycloak?.logout) {
+    keycloak.logout({
+      redirectUri: window.location.origin,
+    });
+  }
 };
 
 const filteredAssets = computed(() => {
-  return assets.value.filter(item => {
-    const keyword = assetSearch.value.toLowerCase();
-    const matchSearch =
-      item.name?.toLowerCase().includes(keyword) ||
-      item.assetCode?.toLowerCase().includes(keyword) ||
-      item.serialNumber?.toLowerCase().includes(keyword);
-    const matchStatus = assetStatusFilter.value ? item.status === assetStatusFilter.value : true;
+  const keyword = assetSearch.value.trim().toLowerCase();
+
+  return assets.value.filter((item) => {
+    const matchSearch = !keyword
+      || item.name?.toLowerCase().includes(keyword)
+      || item.assetCode?.toLowerCase().includes(keyword)
+      || item.serialNumber?.toLowerCase().includes(keyword);
+
+    const matchStatus = assetStatusFilter.value
+      ? item.status === assetStatusFilter.value
+      : true;
+
     return matchSearch && matchStatus;
   });
 });
 
 const filteredSupplies = computed(() => {
-  return supplies.value.filter(item =>
-    item.name?.toLowerCase().includes(supplySearch.value.toLowerCase())
-  );
+  const keyword = supplySearch.value.trim().toLowerCase();
+
+  return supplies.value.filter((item) => (
+    !keyword
+    || item.name?.toLowerCase().includes(keyword)
+    || item.itemCode?.toLowerCase().includes(keyword)
+  ));
 });
 
-// --- LOG & SUMMARY วัสดุสิ้นเปลือง ---
-const getCategoryName = (catId) => {
-  const cat = categories.value.find(c => c.id === catId);
-  return cat ? cat.name : 'ไม่มีหมวดหมู่';
+const getCategoryName = (categoryId) => {
+  const category = categories.value.find((item) => Number(item.id) === Number(categoryId));
+  return category?.name || 'ไม่มีหมวดหมู่';
 };
 
-// helper สำหรับดูสถานะใกล้วันคืน / เลยกำหนด
 const getBorrowRowStatus = (record) => {
   if (!record.dueDate || record.status !== 'Active') {
     return { type: 'normal', daysLeft: null };
   }
 
   const today = new Date();
-  const due = new Date(record.dueDate);
+  const dueDate = new Date(record.dueDate);
 
   today.setHours(0, 0, 0, 0);
-  due.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
 
-  const diffMs = due.getTime() - today.getTime();
-  const daysLeft = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.round(
+    (dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
 
-  if (daysLeft < 0) {
-    return { type: 'overdue', daysLeft };
-  }
-  if (daysLeft <= 3) {
-    return { type: 'near', daysLeft };
-  }
+  if (daysLeft < 0) return { type: 'overdue', daysLeft };
+  if (daysLeft <= 3) return { type: 'near', daysLeft };
+
   return { type: 'normal', daysLeft };
 };
 
+const getStatusBadge = (status) => {
+  switch (status) {
+    case 'Available':
+      return 'bg-emerald-100 text-emerald-800';
+    case 'Borrowed':
+      return 'bg-amber-100 text-amber-800';
+    case 'Maintenance':
+      return 'bg-rose-100 text-rose-800';
+    case 'Retired':
+      return 'bg-slate-200 text-slate-700';
+    default:
+      return 'bg-slate-100 text-slate-800';
+  }
+};
 
+const saveCategory = async () => {
+  const name = categoryForm.name.trim();
+  const type = categoryForm.type.trim().toUpperCase();
+
+  if (!name) {
+    alert('กรุณาระบุชื่อหมวดหมู่');
+    return;
+  }
+
+  if (!['ASSET', 'SUPPLY'].includes(type)) {
+    alert(`ประเภทหมวดหมู่ไม่ถูกต้อง: ${categoryForm.type}`);
+    return;
+  }
+
+  try {
+    console.log('Creating category payload:', { name, type });
+
+    const createdCategory = await api.createCategory({
+      name,
+      type,
+    });
+
+    console.log('Category created:', createdCategory);
+
+    categoryForm.name = '';
+    categoryForm.type = 'ASSET';
+    showCategoryModal.value = false;
+
+    await loadData();
+
+    alert('เพิ่มหมวดหมู่สำเร็จ');
+  } catch (error) {
+    console.error('Save category failed:', error);
+    console.error('Error message:', error?.message);
+    console.error('Error response:', error?.response);
+
+    alert(error?.message || 'ไม่สามารถเพิ่มหมวดหมู่ได้');
+  }
+};
+
+const deleteCategory = async () => {
+  alert('API ลบหมวดหมู่ยังไม่ได้สร้าง เพื่อป้องกันข้อมูลครุภัณฑ์/วัสดุอ้างอิงผิดพลาด');
+};
+
+const openAssetModal = (asset = null) => {
+  if (asset) {
+    editingAssetId.value = asset.id;
+    assetForm.name = asset.name || '';
+    assetForm.brand = asset.brand || '';
+    assetForm.model = asset.model || '';
+    assetForm.assetCode = asset.assetCode || '';
+    assetForm.serialNumber = asset.serialNumber || '';
+    assetForm.categoryId = asset.categoryId || '';
+    assetForm.location = asset.location || '';
+    assetForm.note = asset.note || '';
+    assetForm.status = dbStatusFromUi(asset.status);
+  } else {
+    editingAssetId.value = null;
+    assetForm.name = '';
+    assetForm.brand = '';
+    assetForm.model = '';
+    assetForm.assetCode = '';
+    assetForm.serialNumber = '';
+    assetForm.categoryId = categories.value.find((item) => item.type === 'asset')?.id || '';
+    assetForm.location = '';
+    assetForm.note = '';
+    assetForm.status = 'AVAILABLE';
+  }
+
+  showAssetModal.value = true;
+};
+
+const saveAsset = async () => {
+  if (editingAssetId.value) {
+    alert('API แก้ไขครุภัณฑ์ยังไม่ได้สร้าง กรุณาเพิ่มข้อมูลใหม่ก่อน');
+    return;
+  }
+
+  try {
+    await api.createAsset({
+      assetCode: assetForm.assetCode,
+      name: assetForm.name,
+      categoryId: Number(assetForm.categoryId),
+      brand: assetForm.brand,
+      model: assetForm.model,
+      serialNumber: assetForm.serialNumber,
+      location: assetForm.location,
+      status: assetForm.status,
+      note: assetForm.note,
+    });
+
+    showAssetModal.value = false;
+    await loadData();
+  } catch (error) {
+    console.error('Save asset failed:', error);
+    alert(error.message);
+  }
+};
+
+const deleteAsset = async () => {
+  alert('API ลบครุภัณฑ์ยังไม่ได้สร้าง เพื่อป้องกันประวัติยืม–คืนสูญหาย');
+};
+
+const openBorrowModal = () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  borrowForm.assetId = '';
+  borrowForm.borrowerCid = 'TEMP-USER';
+  borrowForm.borrowerName = '';
+  borrowForm.department = '';
+  borrowForm.purpose = '';
+  borrowForm.dueDate = today;
+
+  showBorrowModal.value = true;
+};
+
+const submitBorrow = async () => {
+  if (!borrowForm.assetId || !borrowForm.borrowerName || !borrowForm.purpose) {
+    alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบ');
+    return;
+  }
+
+  try {
+    await api.createBorrow({
+      assetId: Number(borrowForm.assetId),
+      borrowerCid: borrowForm.borrowerCid || 'TEMP-USER',
+      borrowerName: borrowForm.borrowerName,
+      department: borrowForm.department,
+      purpose: borrowForm.purpose,
+      dueAt: borrowForm.dueDate
+        ? `${borrowForm.dueDate}T17:00:00.000Z`
+        : null,
+    });
+
+    showBorrowModal.value = false;
+    await loadData();
+  } catch (error) {
+    console.error('Borrow failed:', error);
+    alert(error.message);
+  }
+};
+
+const returnAsset = async (record) => {
+  if (!confirm('ยืนยันการคืนอุปกรณ์นี้หรือไม่?')) return;
+
+  try {
+    await api.returnBorrow(record.id, {
+      receivedByCid: 'TEMP-USER',
+      returnNote: '',
+    });
+
+    await loadData();
+  } catch (error) {
+    console.error('Return asset failed:', error);
+    alert(error.message);
+  }
+};
+
+const openSupplyModal = (supply = null) => {
+  if (supply) {
+    editingSupplyId.value = supply.id;
+    supplyForm.itemCode = supply.itemCode || '';
+    supplyForm.name = supply.name || '';
+    supplyForm.categoryId = supply.categoryId || '';
+    supplyForm.quantity = Number(supply.quantity || 0);
+    supplyForm.minimumQuantity = Number(supply.minimumQuantity ?? supply.minThreshold ?? 0);
+    supplyForm.unit = supply.unit || 'pcs';
+    supplyForm.location = supply.location || '';
+    supplyForm.note = supply.note || '';
+  } else {
+    editingSupplyId.value = null;
+    supplyForm.itemCode = '';
+    supplyForm.name = '';
+    supplyForm.categoryId = categories.value.find((item) => item.type === 'supply')?.id || '';
+    supplyForm.quantity = 0;
+    supplyForm.minimumQuantity = 5;
+    supplyForm.unit = 'pcs';
+    supplyForm.location = '';
+    supplyForm.note = '';
+  }
+
+  showSupplyModal.value = true;
+};
+
+const saveSupply = async () => {
+  if (editingSupplyId.value) {
+    alert('API แก้ไขวัสดุยังไม่ได้สร้าง กรุณาเพิ่มข้อมูลใหม่ก่อน');
+    return;
+  }
+
+  try {
+    await api.createSupply({
+      itemCode: supplyForm.itemCode,
+      name: supplyForm.name,
+      categoryId: Number(supplyForm.categoryId),
+      unit: supplyForm.unit,
+      quantity: Number(supplyForm.quantity),
+      minimumQuantity: Number(supplyForm.minimumQuantity),
+      location: supplyForm.location,
+      note: supplyForm.note,
+    });
+
+    showSupplyModal.value = false;
+    await loadData();
+  } catch (error) {
+    console.error('Save supply failed:', error);
+    alert(error.message);
+  }
+};
+
+const openSupplyTxModal = (supplyId, type) => {
+  supplyTxForm.supplyId = Number(supplyId);
+  supplyTxForm.type = type;
+  supplyTxForm.quantity = 1;
+  supplyTxForm.note = '';
+  supplyTxForm.requesterName = '';
+  supplyTxForm.department = '';
+  supplyTxForm.workOrderNo = '';
+  supplyTxForm.createdByCid = 'TEMP-USER';
+
+  supplyTxModal.value = true;
+};
+
+const submitSupplyTx = async () => {
+  if (
+    supplyTxForm.type === 'OUT'
+    && !supplyTxForm.workOrderNo.trim()
+  ) {
+    alert('กรุณาระบุหมายเลขใบงานก่อนเบิกวัสดุ');
+    return;
+  }
+
+  try {
+    await api.createSupplyTransaction(supplyTxForm.supplyId, {
+      transactionType: supplyTxForm.type,
+      quantity: Number(supplyTxForm.quantity),
+      workOrderNo: supplyTxForm.workOrderNo,
+      requesterName: supplyTxForm.requesterName,
+      department: supplyTxForm.department,
+      note: supplyTxForm.note,
+      createdByCid: supplyTxForm.createdByCid || 'TEMP-USER',
+    });
+
+    supplyTxModal.value = false;
+    await loadData();
+  } catch (error) {
+    console.error('Save supply transaction failed:', error);
+    alert(error.message);
+  }
+};
+
+const supplyLogs = computed(() => (
+  supplyTransactions.value
+    .map((transaction) => {
+      const supply = supplies.value.find(
+        (item) => Number(item.id) === Number(transaction.supplyId),
+      );
+
+      return {
+        ...transaction,
+        supplyName: transaction.supplyName || supply?.name || '',
+        unit: transaction.unit || supply?.unit || '',
+        categoryId: supply?.categoryId || '',
+        categoryName: supply
+          ? getCategoryName(supply.categoryId)
+          : '',
+      };
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.timestamp || 0).getTime();
+      const timeB = new Date(b.timestamp || 0).getTime();
+      return timeB - timeA;
+    })
+));
 
 const suppliesUsageByCategory = computed(() => {
   const result = {};
 
-  // OUT = used
-  for (const tx of supplyTransactions.value) {
-    if (!tx.supplyId || tx.type !== 'OUT') continue;
-    const supply = supplies.value.find(s => s.id === tx.supplyId);
+  for (const transaction of supplyTransactions.value) {
+    if (!transaction.supplyId || transaction.type !== 'OUT') continue;
+
+    const supply = supplies.value.find(
+      (item) => Number(item.id) === Number(transaction.supplyId),
+    );
+
     if (!supply) continue;
 
-    const catId = supply.categoryId || 'uncategorized';
-    if (!result[catId]) {
-      result[catId] = {
-        categoryId: catId,
-        categoryName: getCategoryName(catId),
+    const categoryId = supply.categoryId || 'uncategorized';
+
+    if (!result[categoryId]) {
+      result[categoryId] = {
+        categoryId,
+        categoryName: getCategoryName(categoryId),
         used: 0,
         currentQty: 0,
       };
     }
-    result[catId].used += Number(tx.quantity) || 0;
+
+    result[categoryId].used += Number(transaction.quantity) || 0;
   }
 
-  // currentQty จาก stock
-  for (const s of supplies.value) {
-    const catId = s.categoryId || 'uncategorized';
-    if (!result[catId]) {
-      result[catId] = {
-        categoryId: catId,
-        categoryName: getCategoryName(catId),
+  for (const supply of supplies.value) {
+    const categoryId = supply.categoryId || 'uncategorized';
+
+    if (!result[categoryId]) {
+      result[categoryId] = {
+        categoryId,
+        categoryName: getCategoryName(categoryId),
         used: 0,
         currentQty: 0,
       };
     }
-    result[catId].currentQty += Number(s.quantity) || 0;
+
+    result[categoryId].currentQty += Number(supply.quantity) || 0;
   }
 
   return Object.values(result);
 });
 
-// ใช้ log + stock สร้าง summary แยกตาม "รายการวัสดุแต่ละตัว"
 const suppliesUsageByItem = computed(() => {
   const result = {};
 
-  // 1) รวม OUT (ใช้ไปแล้ว) ต่อ supplyId
-  for (const tx of supplyTransactions.value) {
-    if (!tx.supplyId || tx.type !== 'OUT') continue;
+  for (const transaction of supplyTransactions.value) {
+    if (!transaction.supplyId || transaction.type !== 'OUT') continue;
 
-    if (!result[tx.supplyId]) {
-      result[tx.supplyId] = {
-        supplyId: tx.supplyId,
+    if (!result[transaction.supplyId]) {
+      result[transaction.supplyId] = {
+        supplyId: transaction.supplyId,
         name: '',
         categoryId: '',
         categoryName: '',
@@ -289,69 +634,41 @@ const suppliesUsageByItem = computed(() => {
         currentQty: 0,
       };
     }
-    result[tx.supplyId].used += Number(tx.quantity) || 0;
+
+    result[transaction.supplyId].used += Number(transaction.quantity) || 0;
   }
 
-  // 2) เติมข้อมูลจาก stock (ชื่อ, หมวด, คงเหลือ)
-  for (const s of supplies.value) {
-    if (!result[s.id]) {
-      result[s.id] = {
-        supplyId: s.id,
-        name: s.name || '',
-        categoryId: s.categoryId || '',
-        categoryName: getCategoryName(s.categoryId),
+  for (const supply of supplies.value) {
+    if (!result[supply.id]) {
+      result[supply.id] = {
+        supplyId: supply.id,
+        name: supply.name || '',
+        categoryId: supply.categoryId || '',
+        categoryName: getCategoryName(supply.categoryId),
         used: 0,
         currentQty: 0,
       };
     }
-    result[s.id].name = s.name || result[s.id].name;
-    result[s.id].categoryId = s.categoryId || result[s.id].categoryId;
-    result[s.id].categoryName = getCategoryName(s.categoryId) || result[s.id].categoryName;
-    result[s.id].currentQty = Number(s.quantity) || 0;
+
+    result[supply.id].name = supply.name || result[supply.id].name;
+    result[supply.id].categoryId = supply.categoryId || result[supply.id].categoryId;
+    result[supply.id].categoryName = getCategoryName(supply.categoryId);
+    result[supply.id].currentQty = Number(supply.quantity) || 0;
   }
 
   return Object.values(result);
 });
 
-// รวม log การเบิก/เติมวัสดุสิ้นเปลือง พร้อม join กับชื่อวัสดุและหมวดหมู่
-const supplyLogs = computed(() => {
-  return supplyTransactions.value
-    .map(tx => {
-      const supply = supplies.value.find(s => s.id === tx.supplyId);
-      return {
-        id: tx.id,
-        supplyId: tx.supplyId,
-        type: tx.type, // 'IN' or 'OUT'
-        quantity: tx.quantity,
-        note: tx.note || '',
-        requesterName: tx.requesterName || '',
-        department: tx.department || '',
-        timestamp: tx.timestamp || null,
-        workOrderNo: tx.workOrderNo || '',
-        // join จาก stock
-        supplyName: supply?.name || '',
-        unit: supply?.unit || '',
-        categoryId: supply?.categoryId || '',
-        categoryName: supply ? getCategoryName(supply.categoryId) : '',
-      };
-    })
-    .sort((a, b) => {
-      const ta = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
-      const tb = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
-      return tb - ta; // ล่าสุดอยู่บน
-    });
-});
-
-// สรุปครุภัณฑ์ตามหมวดหมู่และสถานะ
 const assetSummaryByCategory = computed(() => {
   const result = {};
 
-  for (const a of assets.value) {
-    const catId = a.categoryId || 'uncategorized';
-    if (!result[catId]) {
-      result[catId] = {
-        categoryId: catId,
-        categoryName: getCategoryName(catId),
+  for (const asset of assets.value) {
+    const categoryId = asset.categoryId || 'uncategorized';
+
+    if (!result[categoryId]) {
+      result[categoryId] = {
+        categoryId,
+        categoryName: getCategoryName(categoryId),
         total: 0,
         available: 0,
         borrowed: 0,
@@ -361,19 +678,26 @@ const assetSummaryByCategory = computed(() => {
       };
     }
 
-    result[catId].total += 1;
-    if (a.status === 'Available') result[catId].available += 1;
-    else if (a.status === 'Borrowed') result[catId].borrowed += 1;
-    else if (a.status === 'Maintenance') result[catId].maintenance += 1;
-    else if (a.status === 'Retired') result[catId].retired += 1;
+    result[categoryId].total += 1;
 
-    result[catId].items.push(a);
+    if (asset.status === 'Available') result[categoryId].available += 1;
+    else if (asset.status === 'Borrowed') result[categoryId].borrowed += 1;
+    else if (asset.status === 'Maintenance') result[categoryId].maintenance += 1;
+    else if (asset.status === 'Retired') result[categoryId].retired += 1;
+
+    result[categoryId].items.push(asset);
   }
 
-  return Object.values(result).map(group => {
-    group.items.sort((x, y) => (x.name || '').localeCompare(y.name || ''));
-    return group;
-  }).sort((a, b) => (a.categoryName || '').localeCompare(b.categoryName || ''));
+  return Object.values(result)
+    .map((group) => ({
+      ...group,
+      items: [...group.items].sort((a, b) => (
+        (a.name || '').localeCompare(b.name || '')
+      )),
+    }))
+    .sort((a, b) => (
+      (a.categoryName || '').localeCompare(b.categoryName || '')
+    ));
 });
 
 const suppliesUsageSummary = computed(() => {
@@ -381,348 +705,85 @@ const suppliesUsageSummary = computed(() => {
   let totalCurrent = 0;
 
   for (const row of suppliesUsageByCategory.value) {
-    totalUsed += row.used;
-    totalCurrent += row.currentQty;
+    totalUsed += Number(row.used) || 0;
+    totalCurrent += Number(row.currentQty) || 0;
   }
 
   return { totalUsed, totalCurrent };
 });
 
-// Helper status badge
-const getStatusBadge = (status) => {
-  switch (status) {
-    case 'Available': return 'bg-emerald-100 text-emerald-800';
-    case 'Borrowed': return 'bg-amber-100 text-amber-800';
-    case 'Maintenance': return 'bg-rose-100 text-rose-800';
-    case 'Retired': return 'bg-slate-200 text-slate-700';
-    default: return 'bg-slate-100 text-slate-800';
-  }
-};
-
-// --- Category Actions ---
-const saveCategory = async () => {
-  if (!categoryForm.name) return;
-  try {
-    await addDoc(collection(db, 'categories'), {
-      name: categoryForm.name,
-      type: categoryForm.type,
-      createdAt: serverTimestamp()
-    });
-    categoryForm.name = '';
-    showCategoryModal.value = false;
-  } catch (error) {
-    console.error('Error adding category: ', error);
-  }
-};
-
-const deleteCategory = async (id) => {
-  if (confirm('ยืนยันการลบหมวดหมู่นี้หรือไม่?')) {
-    await deleteDoc(doc(db, 'categories', id));
-  }
-};
-
-// --- Asset Actions ---
-const openAssetModal = (asset = null) => {
-  if (asset) {
-    editingAssetId.value = asset.id;
-    assetForm.name = asset.name || '';
-    assetForm.brand = asset.brand || '';
-    assetForm.assetCode = asset.assetCode || '';
-    assetForm.serialNumber = asset.serialNumber || '';
-    assetForm.categoryId = asset.categoryId || '';
-    assetForm.repairTicket = asset.repairTicket || '';
-    assetForm.status = asset.status || 'Available';
-  } else {
-    editingAssetId.value = null;
-    assetForm.name = '';
-    assetForm.brand = '';
-    assetForm.assetCode = '';
-    assetForm.serialNumber = '';
-    assetForm.categoryId = categories.value[0]?.id || '';
-    assetForm.repairTicket = '';
-    assetForm.status = 'Available';
-  }
-  showAssetModal.value = true;
-};
-
-const saveAsset = async () => {
-  try {
-    if (editingAssetId.value) {
-      await updateDoc(doc(db, 'inventory_assets', editingAssetId.value), {
-        ...assetForm,
-        updatedAt: serverTimestamp()
-      });
-    } else {
-      await addDoc(collection(db, 'inventory_assets'), {
-        ...assetForm,
-        createdAt: serverTimestamp()
-      });
-    }
-    showAssetModal.value = false;
-  } catch (error) {
-    console.error('Error saving asset: ', error);
-  }
-};
-
-const deleteAsset = async (id) => {
-  if (confirm('ต้องการลบครุภัณฑ์/อุปกรณ์นี้หรือไม่?')) {
-    await deleteDoc(doc(db, 'inventory_assets', id));
-  }
-};
-
-// --- Borrow Actions ---
-const openBorrowModal = () => {
-  borrowForm.assetId = '';
-  borrowForm.borrowerName = '';
-  borrowForm.jobTask = '';
-  borrowForm.location = '';
-  borrowForm.notes = '';
-
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const todayStr = `${yyyy}-${mm}-${dd}`;
-
-  borrowForm.borrowDate = todayStr;
-  borrowForm.dueDate = todayStr;
-
-  showBorrowModal.value = true;
-};
-
-const submitBorrow = async () => {
-  if (!borrowForm.assetId || !borrowForm.borrowerName || !borrowForm.jobTask) {
-    alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบ (อุปกรณ์, ผู้ยืม, งาน/โครงการ)');
-    return;
-  }
-
-  if (!borrowForm.borrowDate || !borrowForm.dueDate) {
-    alert('กรุณาระบุวันที่เริ่มยืม และวันที่กำหนดคืน');
-    return;
-  }
-
-  try {
-    const start = new Date(borrowForm.borrowDate);
-    const due = new Date(borrowForm.dueDate);
-    const diffMs = due.getTime() - start.getTime();
-    const totalDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24))); // อย่างน้อย 1 วัน
-
-    await addDoc(collection(db, 'borrow_return'), {
-      ...borrowForm,
-      type: 'BORROW',
-      timestamp: serverTimestamp(),
-      status: 'Active',
-      totalDays,
-      lateDays: 0,
-    });
-
-    await updateDoc(doc(db, 'inventory_assets', borrowForm.assetId), {
-      status: 'Borrowed'
-    });
-
-    showBorrowModal.value = false;
-  } catch (error) {
-    console.error('Error processing borrow: ', error);
-  }
-};
-
-const returnAsset = async (record) => {
-  if (confirm('ยืนยันการคืนอุปกรณ์นี้หรือไม่?')) {
-    try {
-      const now = new Date();
-      const dueDate = record.dueDate ? new Date(record.dueDate) : null;
-      let lateDays = 0;
-
-      if (dueDate) {
-        const diffMs = now.getTime() - dueDate.getTime();
-        lateDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        if (lateDays < 0) lateDays = 0;
-      }
-
-      await updateDoc(doc(db, 'borrow_return', record.id), {
-        status: 'Returned',
-        returnedAt: serverTimestamp(),
-        lateDays,
-      });
-
-      await updateDoc(doc(db, 'inventory_assets', record.assetId), {
-        status: 'Available'
-      });
-    } catch (error) {
-      console.error('Error processing return: ', error);
-    }
-  }
-};
-
-// --- Supplies Actions ---
-const openSupplyModal = (supply = null) => {
-  if (supply) {
-    editingSupplyId.value = supply.id;
-    supplyForm.name = supply.name || '';
-    supplyForm.categoryId = supply.categoryId || '';
-    supplyForm.quantity = supply.quantity || 0;
-    supplyForm.minThreshold = supply.minThreshold || 5;
-    supplyForm.unit = supply.unit || 'pcs';
-  } else {
-    editingSupplyId.value = null;
-    supplyForm.name = '';
-    supplyForm.categoryId = categories.value[0]?.id || '';
-    supplyForm.quantity = 0;
-    supplyForm.minThreshold = 5;
-    supplyForm.unit = 'pcs';
-  }
-  showSupplyModal.value = true;
-};
-
-const saveSupply = async () => {
-  try {
-    if (editingSupplyId.value) {
-      await updateDoc(doc(db, 'supplies_stock', editingSupplyId.value), {
-        ...supplyForm,
-        updatedAt: serverTimestamp()
-      });
-    } else {
-      await addDoc(collection(db, 'supplies_stock'), {
-        ...supplyForm,
-        createdAt: serverTimestamp()
-      });
-    }
-    showSupplyModal.value = false;
-  } catch (error) {
-    console.error('Error saving supply: ', error);
-  }
-};
-
-const openSupplyTxModal = (supplyId, type) => {
-  supplyTxForm.supplyId = supplyId;
-  supplyTxForm.type = type;
-  supplyTxForm.quantity = 1;
-  supplyTxForm.note = '';
-  supplyTxForm.requesterName = '';
-  supplyTxForm.department = '';
-  supplyTxForm.workOrderNo = '';
-  supplyTxModal.value = true;
-};
-
-const submitSupplyTx = async () => {
-  try {
-    const qtyChange = supplyTxForm.type === 'IN'
-      ? Number(supplyTxForm.quantity)
-      : -Number(supplyTxForm.quantity);
-
-    await addDoc(collection(db, 'supplies_transactions'), {
-      ...supplyTxForm,
-      quantity: Number(supplyTxForm.quantity),
-      timestamp: serverTimestamp()
-    });
-
-    const supplyRef = doc(db, 'supplies_stock', supplyTxForm.supplyId);
-    await updateDoc(supplyRef, {
-      quantity: increment(qtyChange)
-    });
-
-    supplyTxModal.value = false;
-  } catch (error) {
-    console.error('Error recording supply transaction:', error);
-  }
-};
-
-// สรุปยอดวัสดุแบบรายเดือน
-// - totalIn  : ยอดเติมเข้าทั้งเดือน (IN)
-// - totalOut : ยอดเบิกใช้ทั้งเดือน (OUT)
-// - departments : OUT แยกตามแผนก
 const suppliesMonthlySummary = computed(() => {
   const result = {};
 
-  for (const tx of supplyTransactions.value) {
-    if (!tx.timestamp || !tx.timestamp.toDate) continue;
-    if (tx.type !== 'OUT') continue; // สรุปเฉพาะ OUT สำหรับ breakdown ตามแผนก
+  for (const transaction of supplyTransactions.value) {
+    const date = new Date(transaction.timestamp || 0);
 
-    const d = tx.timestamp.toDate();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const monthKey = `${year}-${month}`;
-    const dept = tx.department || 'ไม่ระบุแผนก';
+    if (Number.isNaN(date.getTime())) continue;
 
-    // หาข้อมูลวัสดุจาก supplies เพื่อเอาชื่อ/หน่วย
-    const supply = supplies.value.find(s => s.id === tx.supplyId);
-    const supplyName = supply?.name || 'ไม่พบชื่อวัสดุ';
-    const unit = supply?.unit || '';
+    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-    if (!result[monthKey]) {
-      result[monthKey] = {
-        month: monthKey,
+    if (!result[month]) {
+      result[month] = {
+        month,
         totalIn: 0,
         totalOut: 0,
         departments: {},
       };
     }
 
-    // รวม OUT รายเดือน
-    const qty = Number(tx.quantity) || 0;
-    result[monthKey].totalOut += qty;
+    const quantity = Number(transaction.quantity) || 0;
 
-    if (!result[monthKey].departments[dept]) {
-      result[monthKey].departments[dept] = {
-        department: dept,
+    if (transaction.type === 'IN') {
+      result[month].totalIn += quantity;
+      continue;
+    }
+
+    if (transaction.type !== 'OUT') continue;
+
+    result[month].totalOut += quantity;
+
+    const department = transaction.department || 'ไม่ระบุแผนก';
+
+    if (!result[month].departments[department]) {
+      result[month].departments[department] = {
+        department,
         totalOut: 0,
-        items: {}, // key = supplyId
+        items: {},
       };
     }
 
-    const deptData = result[monthKey].departments[dept];
-    deptData.totalOut += qty;
+    const departmentData = result[month].departments[department];
+    departmentData.totalOut += quantity;
 
-    if (!deptData.items[tx.supplyId]) {
-      deptData.items[tx.supplyId] = {
-        supplyId: tx.supplyId,
-        name: supplyName,
-        unit,
+    if (!departmentData.items[transaction.supplyId]) {
+      departmentData.items[transaction.supplyId] = {
+        supplyId: transaction.supplyId,
+        name: transaction.supplyName || '',
+        unit: transaction.unit || '',
         totalQty: 0,
       };
     }
 
-    deptData.items[tx.supplyId].totalQty += qty;
-  }
-
-  for (const tx of supplyTransactions.value) {
-    if (!tx.timestamp || !tx.timestamp.toDate) continue;
-    if (tx.type !== 'IN') continue;
-
-    const d = tx.timestamp.toDate();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const monthKey = `${year}-${month}`;
-
-    if (!result[monthKey]) {
-      result[monthKey] = {
-        month: monthKey,
-        totalIn: 0,
-        totalOut: 0,
-        departments: {},
-      };
-    }
-
-    const qty = Number(tx.quantity) || 0;
-    result[monthKey].totalIn += qty;
+    departmentData.items[transaction.supplyId].totalQty += quantity;
   }
 
   const summary = Object.values(result)
-    .map(item => ({
+    .map((item) => ({
       month: item.month,
       totalIn: item.totalIn,
       totalOut: item.totalOut,
-      departments: Object.values(item.departments).map(deptData => ({
-        department: deptData.department,
-        totalOut: deptData.totalOut,
-        items: Object.values(deptData.items), // [{ name, unit, totalQty }]
+      departments: Object.values(item.departments).map((department) => ({
+        department: department.department,
+        totalOut: department.totalOut,
+        items: Object.values(department.items),
       })),
     }))
     .sort((a, b) => (a.month < b.month ? 1 : -1));
 
-  const months = summary.map(item => item.month);
-
-  return { months, summary };
+  return {
+    months: summary.map((item) => item.month),
+    summary,
+  };
 });
 </script>
 
