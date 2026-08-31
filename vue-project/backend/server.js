@@ -128,12 +128,12 @@ app.post('/api/categories', async (req, res) => {
 });
 
 app.get('/api/assets', async (req, res) => {
-  let conn;
+    let conn;
 
-  try {
-    conn = await pool.getConnection();
+    try {
+        conn = await pool.getConnection();
 
-    const rows = await conn.query(`
+        const rows = await conn.query(`
       SELECT
         a.id,
         a.asset_code AS assetCode,
@@ -154,84 +154,84 @@ app.get('/api/assets', async (req, res) => {
       ORDER BY a.asset_code
     `);
 
-    res.json(rows.map((row) => ({
-      ...row,
-      id: Number(row.id),
-      categoryId: row.categoryId === null ? null : Number(row.categoryId),
-    })));
-  } catch (error) {
-    console.error('Get assets failed:', error.message);
+        res.json(rows.map((row) => ({
+            ...row,
+            id: Number(row.id),
+            categoryId: row.categoryId === null ? null : Number(row.categoryId),
+        })));
+    } catch (error) {
+        console.error('Get assets failed:', error.message);
 
-    res.status(500).json({
-      message: 'ไม่สามารถโหลดรายการครุภัณฑ์ได้',
-    });
-  } finally {
-    if (conn) conn.release();
-  }
+        res.status(500).json({
+            message: 'ไม่สามารถโหลดรายการครุภัณฑ์ได้',
+        });
+    } finally {
+        if (conn) conn.release();
+    }
 });
 
 app.post('/api/assets', async (req, res) => {
-  const assetCode = String(req.body.assetCode || '').trim();
-  const name = String(req.body.name || '').trim();
-  const categoryId = Number(req.body.categoryId);
+    const assetCode = String(req.body.assetCode || '').trim();
+    const name = String(req.body.name || '').trim();
+    const categoryId = Number(req.body.categoryId);
 
-  const brand = String(req.body.brand || '').trim() || null;
-  const model = String(req.body.model || '').trim() || null;
-  const serialNumber = String(req.body.serialNumber || '').trim() || null;
-  const location = String(req.body.location || '').trim() || null;
-  const note = String(req.body.note || '').trim() || null;
+    const brand = String(req.body.brand || '').trim() || null;
+    const model = String(req.body.model || '').trim() || null;
+    const serialNumber = String(req.body.serialNumber || '').trim() || null;
+    const location = String(req.body.location || '').trim() || null;
+    const note = String(req.body.note || '').trim() || null;
 
-  const status = String(req.body.status || 'AVAILABLE')
-    .trim()
-    .toUpperCase();
+    const status = String(req.body.status || 'AVAILABLE')
+        .trim()
+        .toUpperCase();
 
-  const validStatuses = ['AVAILABLE', 'BORROWED', 'REPAIR', 'DISPOSED'];
+    const validStatuses = ['AVAILABLE', 'BORROWED', 'REPAIR', 'DISPOSED'];
 
-  if (!assetCode) {
-    return res.status(400).json({
-      message: 'กรุณาระบุรหัสครุภัณฑ์',
-    });
-  }
+    if (!assetCode) {
+        return res.status(400).json({
+            message: 'กรุณาระบุรหัสครุภัณฑ์',
+        });
+    }
 
-  if (!name) {
-    return res.status(400).json({
-      message: 'กรุณาระบุชื่อครุภัณฑ์',
-    });
-  }
+    if (!name) {
+        return res.status(400).json({
+            message: 'กรุณาระบุชื่อครุภัณฑ์',
+        });
+    }
 
-  if (!Number.isInteger(categoryId) || categoryId <= 0) {
-    return res.status(400).json({
-      message: 'กรุณาเลือกหมวดหมู่ครุภัณฑ์',
-    });
-  }
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+        return res.status(400).json({
+            message: 'กรุณาเลือกหมวดหมู่ครุภัณฑ์',
+        });
+    }
 
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({
-      message: 'สถานะครุภัณฑ์ไม่ถูกต้อง',
-    });
-  }
+    if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+            message: 'สถานะครุภัณฑ์ไม่ถูกต้อง',
+        });
+    }
 
-  let conn;
+    let conn;
 
-  try {
-    conn = await pool.getConnection();
+    try {
+        conn = await pool.getConnection();
 
-    const categoryRows = await conn.query(
-      `SELECT id
+        const categoryRows = await conn.query(
+            `SELECT id
        FROM categories
        WHERE id = ?
          AND type = 'ASSET'`,
-      [categoryId],
-    );
+            [categoryId],
+        );
 
-    if (categoryRows.length === 0) {
-      return res.status(400).json({
-        message: 'ไม่พบหมวดหมู่ครุภัณฑ์ที่เลือก',
-      });
-    }
+        if (categoryRows.length === 0) {
+            return res.status(400).json({
+                message: 'ไม่พบหมวดหมู่ครุภัณฑ์ที่เลือก',
+            });
+        }
 
-    const result = await conn.query(
-      `INSERT INTO inventory_assets (
+        const result = await conn.query(
+            `INSERT INTO inventory_assets (
         asset_code,
         name,
         category_id,
@@ -242,47 +242,210 @@ app.post('/api/assets', async (req, res) => {
         status,
         note
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        assetCode,
-        name,
-        categoryId,
-        brand,
-        model,
-        serialNumber,
-        location,
-        status,
-        note,
-      ],
-    );
+            [
+                assetCode,
+                name,
+                categoryId,
+                brand,
+                model,
+                serialNumber,
+                location,
+                status,
+                note,
+            ],
+        );
 
-    res.status(201).json({
-      id: Number(result.insertId),
-      assetCode,
-      name,
-      categoryId,
-      brand,
-      model,
-      serialNumber,
-      location,
-      status,
-      note,
-      message: 'เพิ่มครุภัณฑ์สำเร็จ',
-    });
-  } catch (error) {
-    console.error('Create asset failed:', error.message);
+        res.status(201).json({
+            id: Number(result.insertId),
+            assetCode,
+            name,
+            categoryId,
+            brand,
+            model,
+            serialNumber,
+            location,
+            status,
+            note,
+            message: 'เพิ่มครุภัณฑ์สำเร็จ',
+        });
+    } catch (error) {
+        console.error('Create asset failed:', error.message);
 
-    if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(409).json({
-        message: 'รหัสครุภัณฑ์นี้มีอยู่แล้ว',
-      });
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({
+                message: 'รหัสครุภัณฑ์นี้มีอยู่แล้ว',
+            });
+        }
+
+        res.status(500).json({
+            message: 'ไม่สามารถเพิ่มครุภัณฑ์ได้',
+        });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+app.get('/api/supplies', async (req, res) => {
+    let conn;
+
+    try {
+        conn = await pool.getConnection();
+
+        const rows = await conn.query(`
+      SELECT
+        s.id,
+        s.item_code AS itemCode,
+        s.name,
+        s.category_id AS categoryId,
+        c.name AS categoryName,
+        s.unit,
+        s.quantity,
+        s.minimum_quantity AS minimumQuantity,
+        s.location,
+        s.note,
+        s.created_at AS createdAt,
+        s.updated_at AS updatedAt
+      FROM supplies_stock AS s
+      LEFT JOIN categories AS c
+        ON c.id = s.category_id
+      ORDER BY s.item_code
+    `);
+
+        res.json(rows.map((row) => ({
+            ...row,
+            id: Number(row.id),
+            categoryId: row.categoryId === null ? null : Number(row.categoryId),
+            quantity: Number(row.quantity),
+            minimumQuantity: Number(row.minimumQuantity),
+        })));
+    } catch (error) {
+        console.error('Get supplies failed:', error.message);
+
+        res.status(500).json({
+            message: 'ไม่สามารถโหลดรายการวัสดุสิ้นเปลืองได้',
+        });
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+app.post('/api/supplies', async (req, res) => {
+    const itemCode = String(req.body.itemCode || '').trim();
+    const name = String(req.body.name || '').trim();
+    const categoryId = Number(req.body.categoryId);
+    const unit = String(req.body.unit || '').trim();
+
+    const quantity = Number(req.body.quantity ?? 0);
+    const minimumQuantity = Number(req.body.minimumQuantity ?? 0);
+
+    const location = String(req.body.location || '').trim() || null;
+    const note = String(req.body.note || '').trim() || null;
+
+    if (!itemCode) {
+        return res.status(400).json({
+            message: 'กรุณาระบุรหัสวัสดุ',
+        });
     }
 
-    res.status(500).json({
-      message: 'ไม่สามารถเพิ่มครุภัณฑ์ได้',
-    });
-  } finally {
-    if (conn) conn.release();
-  }
+    if (!name) {
+        return res.status(400).json({
+            message: 'กรุณาระบุชื่อวัสดุ',
+        });
+    }
+
+    if (!Number.isInteger(categoryId) || categoryId <= 0) {
+        return res.status(400).json({
+            message: 'กรุณาเลือกหมวดหมู่วัสดุ',
+        });
+    }
+
+    if (!unit) {
+        return res.status(400).json({
+            message: 'กรุณาระบุหน่วยนับ',
+        });
+    }
+
+    if (!Number.isFinite(quantity) || quantity < 0) {
+        return res.status(400).json({
+            message: 'จำนวนคงเหลือต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป',
+        });
+    }
+
+    if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) {
+        return res.status(400).json({
+            message: 'จำนวนขั้นต่ำต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป',
+        });
+    }
+
+    let conn;
+
+    try {
+        conn = await pool.getConnection();
+
+        const categoryRows = await conn.query(
+            `SELECT id
+       FROM categories
+       WHERE id = ?
+         AND type = 'SUPPLY'`,
+            [categoryId],
+        );
+
+        if (categoryRows.length === 0) {
+            return res.status(400).json({
+                message: 'ไม่พบหมวดหมู่วัสดุที่เลือก',
+            });
+        }
+
+        const result = await conn.query(
+            `INSERT INTO supplies_stock (
+        item_code,
+        name,
+        category_id,
+        unit,
+        quantity,
+        minimum_quantity,
+        location,
+        note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                itemCode,
+                name,
+                categoryId,
+                unit,
+                quantity,
+                minimumQuantity,
+                location,
+                note,
+            ],
+        );
+
+        res.status(201).json({
+            id: Number(result.insertId),
+            itemCode,
+            name,
+            categoryId,
+            unit,
+            quantity,
+            minimumQuantity,
+            location,
+            note,
+            message: 'เพิ่มวัสดุสิ้นเปลืองสำเร็จ',
+        });
+    } catch (error) {
+        console.error('Create supply failed:', error.message);
+
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({
+                message: 'รหัสวัสดุนี้มีอยู่แล้ว',
+            });
+        }
+
+        res.status(500).json({
+            message: 'ไม่สามารถเพิ่มวัสดุสิ้นเปลืองได้',
+        });
+    } finally {
+        if (conn) conn.release();
+    }
 });
 
 app.listen(Number(process.env.PORT || 3000), () => {
