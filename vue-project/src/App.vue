@@ -314,14 +314,10 @@ const saveCategory = async () => {
   }
 
   try {
-    console.log('Creating category payload:', { name, type });
-
     const createdCategory = await api.createCategory({
       name,
       type,
     });
-
-    console.log('Category created:', createdCategory);
 
     categoryForm.name = '';
     categoryForm.type = 'ASSET';
@@ -489,23 +485,58 @@ const saveSupply = async () => {
     return;
   }
 
+  const itemCode = supplyForm.itemCode?.trim();
+  const name = supplyForm.name?.trim();
+  const categoryId = Number(supplyForm.categoryId);
+  const unit = supplyForm.unit?.trim();
+  const quantity = Number(supplyForm.quantity);
+  const minimumQuantity = Number(supplyForm.minimumQuantity);
+
+  if (!itemCode || !name || !categoryId || !unit) {
+    alert('กรุณากรอกรหัสวัสดุ ชื่อวัสดุ หมวดหมู่ และหน่วยนับให้ครบ');
+    return;
+  }
+
+  if (!Number.isFinite(quantity) || quantity < 0) {
+    alert('จำนวนเริ่มต้นต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+    return;
+  }
+
+  if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) {
+    alert('ระดับแจ้งเตือนขั้นต่ำต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+    return;
+  }
+
   try {
     await api.createSupply({
-      itemCode: supplyForm.itemCode,
-      name: supplyForm.name,
-      categoryId: Number(supplyForm.categoryId),
-      unit: supplyForm.unit,
-      quantity: Number(supplyForm.quantity),
-      minimumQuantity: Number(supplyForm.minimumQuantity),
-      location: supplyForm.location,
-      note: supplyForm.note,
+      itemCode,
+      name,
+      categoryId,
+      unit,
+      quantity,
+      minimumQuantity,
+      location: supplyForm.location?.trim() || null,
+      note: supplyForm.note?.trim() || null,
+    });
+
+    Object.assign(supplyForm, {
+      itemCode: '',
+      name: '',
+      categoryId: '',
+      unit: '',
+      quantity: 0,
+      minimumQuantity: 0,
+      location: '',
+      note: '',
     });
 
     showSupplyModal.value = false;
     await loadData();
+
+    alert('เพิ่มวัสดุสำเร็จ');
   } catch (error) {
     console.error('Save supply failed:', error);
-    alert(error.message);
+    alert(error?.message || 'ไม่สามารถเพิ่มวัสดุได้');
   }
 };
 
@@ -1114,6 +1145,13 @@ const suppliesMonthlySummary = computed(() => {
         <h3 class="text-xl font-bold text-slate-800">
           {{ editingSupplyId ? 'แก้ไขข้อมูลวัสดุสิ้นเปลือง' : 'เพิ่มวัสดุสิ้นเปลือง' }}
         </h3>
+
+        <div class="form-group">
+          <label class="block text-xs font-medium text-slate-600 mb-1">รหัสวัสดุ</label>
+          <input v-model="supplyForm.itemCode" type="text"
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            placeholder="เช่น SUP-002" />
+        </div>
 
         <div class="space-y-3">
           <div>
