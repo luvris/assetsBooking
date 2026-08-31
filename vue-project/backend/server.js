@@ -721,6 +721,205 @@ app.post('/api/borrows/:id/return', async (req, res) => {
   }
 });
 
+app.get('/api/supply-transactions', async (req, res) => {
+  let conn;
+
+  try {
+    conn = await pool.getConnection();
+
+    const rows = await conn.query(`
+      SELECT
+        st.id,
+        st.supply_id AS supplyId,
+        s.item_code AS itemCode,
+        s.name AS supplyName,
+        s.unit,
+        st.transaction_type AS transactionType,
+        st.quantity,
+        st.work_order_no AS workOrderNo,
+        st.requester_name AS requesterName,
+        st.department,
+        st.note,
+        st.created_by_cid AS createdByCid,
+        st.created_at AS createdAt
+      FROM supplies_transactions AS st
+      INNER JOIN supplies_stock AS s
+        ON s.id = st.supply_id
+      ORDER BY st.created_at DESC, st.id DESC
+    `);
+
+    res.json(rows.map((row) => ({
+      ...row,
+      id: Number(row.id),
+      supplyId: Number(row.supplyId),
+      quantity: Number(row.quantity),
+    })));
+  } catch (error) {
+    console.error('Get supply transactions failed:', error.message);
+
+    res.status(500).json({
+      message: 'ไม่สามารถโหลดประวัติรับเข้า/เบิกวัสดุได้',
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+app.post('/api/supplies/:id/transactions', async (req, res) => {
+  const supplyId = Number(req.params.id);
+  const transactionType = String(req.body.transactionType || '')
+    .trim()
+    .toUpperCase();
+
+  const quantity = Number(req.body.quantity);
+  const workOrderNo = String(req.body.workOrderNo || '').trim() || null;
+  const requesterName = String(req.body.requesterName || '').trim() || null;
+  const department = String(req.body.department || '').trim() || null;
+  const note = String(req.body.note || '').trim() || null;
+
+  // ยังไม่มี Keycloak middleware
+  const createdByCid = String(req.body.createdByCid || '').trim();
+
+  if (!Number.isInteger(supplyId) || supplyId <= 0) {
+    return res.status(400).json({
+      message: 'รหัสวัสดุไม่ถูกต้อง',
+    });
+  }
+
+  if (!['IN', 'OUT'].includes(transactionType)) {
+    return res.status(400).json({
+      message: 'ประเภทรายการต้องเป็น IN หรือ OUT',
+    });
+  }
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return res.status(400).json({
+      message: 'จำนวนต้องเป็นตัวเลขมากกว่า 0',
+    });
+  }
+
+  if (transactionType === 'OUT' && !workOrderNo) {
+    return res.status(400).json({
+      message: 'กรุณาระบุหมายเลขใบงานสำหรับการเบิกวัสดุ',
+    });
+  }
+
+  if (!createdByCid) {
+    return res.status(400).json({
+      message: 'กรุณาระบุ CID ผู้บันทึกรายการ',
+    });
+  }
+
+  let conn;
+  let transactionStarted = false;
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    transactionStarted = true;
+
+    const supplyRows = await conn.query(
+      `SELECT id, item_code, name, quantity
+       FROM supplies_stock
+       WHERE id = ?
+       FOR UPDATE`,
+      [supplyId],
+    );
+
+    const supply = supplyRows[0];
+
+    if (!supply) {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(404).json({
+        message: 'ไม่พบรายการวัสดุ',
+      });
+    }
+
+    const currentQuantity = Number(supply.quantity);
+
+    if (transactionType === 'OUT' && currentQuantity < quantity) {
+      await conn.rollback();
+      transactionStarted = false;
+
+      return res.status(409).json({
+        message: `วัสดุคงเหลือไม่เพียงพอ (คงเหลือ ${currentQuantity})`,
+      });
+    }
+
+    const quantityChange = transactionType === 'IN'
+      ? quantity
+      : -quantity;
+
+    const newQuantity = currentQuantity + quantityChange;
+
+    await conn.query(
+      `UPDATE supplies_stock
+       SET quantity = ?
+       WHERE id = ?`,
+      [newQuantity, supplyId],
+    );
+
+    const insertResult = await conn.query(
+      `INSERT INTO supplies_transactions (
+        supply_id,
+        transaction_type,
+        quantity,
+        work_order_no,
+        requester_name,
+        department,
+        note,
+        created_by_cid
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        supplyId,
+        transactionType,
+        quantity,
+        workOrderNo,
+        requesterName,
+        department,
+        note,
+        createdByCid,
+      ],
+    );
+
+    await conn.commit();
+    transactionStarted = false;
+
+    res.status(201).json({
+      id: Number(insertResult.insertId),
+      supplyId,
+      itemCode: supply.item_code,
+      supplyName: supply.name,
+      transactionType,
+      quantity,
+      previousQuantity: currentQuantity,
+      currentQuantity: newQuantity,
+      workOrderNo,
+      requesterName,
+      department,
+      note,
+      createdByCid,
+      message: transactionType === 'IN'
+        ? 'บันทึกรับวัสดุสำเร็จ'
+        : 'บันทึกการเบิกวัสดุสำเร็จ',
+    });
+  } catch (error) {
+    if (conn && transactionStarted) {
+      await conn.rollback();
+    }
+
+    console.error('Create supply transaction failed:', error.message);
+
+    res.status(500).json({
+      message: 'ไม่สามารถบันทึกรายการวัสดุได้',
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
 app.listen(Number(process.env.PORT || 3000), () => {
     console.log(`Backend API is running at http://localhost:${process.env.PORT || 3000}`);
 });
