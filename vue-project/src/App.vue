@@ -68,9 +68,11 @@ const borrowForm = reactive({
   assetId: '',
   borrowerCid: 'TEMP-USER',
   borrowerName: '',
-  department: '',
+  location: '',
   purpose: '',
+  startDate: '',
   dueDate: '',
+  note: '',
 });
 
 const supplyTxForm = reactive({
@@ -406,34 +408,89 @@ const openBorrowModal = () => {
   borrowForm.borrowerName = '';
   borrowForm.department = '';
   borrowForm.purpose = '';
-  borrowForm.dueDate = today;
+  borrowForm.startDate = today;
+  borrowForm.dueDate = '';
 
   showBorrowModal.value = true;
 };
 
 const submitBorrow = async () => {
-  if (!borrowForm.assetId || !borrowForm.borrowerName || !borrowForm.purpose) {
-    alert('กรุณากรอกข้อมูลที่จำเป็นให้ครบ');
+  const assetId = Number(borrowForm.assetId);
+  const borrowerCid = borrowForm.borrowerCid?.trim() || 'TEMP-USER';
+  const borrowerName = borrowForm.borrowerName?.trim();
+  const location = borrowForm.location?.trim();
+  const purpose = borrowForm.purpose?.trim();
+  const borrowDate = borrowForm.startDate;
+  const dueDate = borrowForm.dueDate;
+  const note = borrowForm.note?.trim() || null;
+
+  const missingFields = [];
+
+  if (!assetId) {
+    missingFields.push('อุปกรณ์');
+  }
+
+  if (!borrowerName) {
+    missingFields.push('ชื่อผู้ยืม');
+  }
+
+  if (!purpose) {
+    missingFields.push('งาน/โครงการที่ใช้');
+  }
+
+  if (!location) {
+    missingFields.push('สถานที่ใช้งาน / สถานที่ยืม');
+  }
+
+  if (!borrowDate) {
+    missingFields.push('วันที่เริ่มยืม');
+  }
+
+  if (!dueDate) {
+    missingFields.push('วันที่กำหนดคืน');
+  }
+
+  if (missingFields.length > 0) {
+    alert(`กรุณากรอกข้อมูลให้ครบ: ${missingFields.join(', ')}`);
+    return;
+  }
+
+  if (new Date(dueDate) < new Date(borrowDate)) {
+    alert('วันที่กำหนดคืนต้องไม่ก่อนวันที่ยืม');
     return;
   }
 
   try {
     await api.createBorrow({
-      assetId: Number(borrowForm.assetId),
-      borrowerCid: borrowForm.borrowerCid || 'TEMP-USER',
-      borrowerName: borrowForm.borrowerName,
-      department: borrowForm.department,
-      purpose: borrowForm.purpose,
-      dueAt: borrowForm.dueDate
-        ? `${borrowForm.dueDate}T17:00:00.000Z`
-        : null,
+      assetId,
+      borrowerCid,
+      borrowerName,
+      location,
+      purpose,
+      borrowDate,
+      dueDate,
+      note,
+    });
+
+    Object.assign(borrowForm, {
+      assetId: '',
+      borrowerCid: 'TEMP-USER',
+      borrowerName: '',
+      location: '',
+      purpose: '',
+      startDate: '',
+      dueDate: '',
+      note: '',
     });
 
     showBorrowModal.value = false;
+
     await loadData();
+
+    alert('บันทึกการยืมสำเร็จ');
   } catch (error) {
-    console.error('Borrow failed:', error);
-    alert(error.message);
+    console.error('Submit borrow failed:', error);
+    alert(error?.message || 'ไม่สามารถบันทึกการยืมได้');
   }
 };
 
@@ -1084,7 +1141,7 @@ const suppliesMonthlySummary = computed(() => {
             <label class="block text-xs font-medium text-slate-600 mb-1">
               งาน/โครงการที่ใช้
             </label>
-            <input v-model="borrowForm.jobTask" type="text"
+            <input v-model="borrowForm.purpose" type="text"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="เช่น ติดตั้งระบบเครือข่ายหอผู้ป่วย" />
           </div>
@@ -1103,7 +1160,7 @@ const suppliesMonthlySummary = computed(() => {
               <label class="block text-xs font-medium text-slate-600 mb-1">
                 วันที่เริ่มยืม
               </label>
-              <input v-model="borrowForm.borrowDate" type="date"
+              <input v-model="borrowForm.startDate" type="date"
                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div>
