@@ -138,17 +138,68 @@ const normalizeSupply = (supply) => ({
   minimumQuantity: Number(supply.minimumQuantity ?? supply.minThreshold ?? 0),
 });
 
-const normalizeBorrow = (record) => ({
-  ...record,
-  id: Number(record.id),
-  assetId: Number(record.assetId),
-  dueDate: record.dueAt || record.dueDate || '',
-  returnedAt: record.returnedAt || null,
-  status: record.returnedAt ? 'Returned' : 'Active',
-  jobTask: record.purpose || record.jobTask || '',
-  location: record.location || '',
-  notes: record.returnNote || record.notes || '',
-});
+const formatThaiDateTime = (dateValue) => {
+  if (!dateValue) return '';
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const normalizeBorrow = (record) => {
+  const borrowedAt = record.borrowedAt || '';
+  const dueAt = record.dueAt || '';
+  const returnedAt = record.returnedAt || '';
+
+  const getDays = (startDate, endDate) => {
+    if (!startDate || !endDate) return 0;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      return 0;
+    }
+
+    return Math.max(
+      0,
+      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
+    );
+  };
+
+  return {
+    ...record,
+
+    assetId: record.assetId,
+    borrowerName: record.borrowerName || '',
+    location: record.department || '',
+    jobTask: record.purpose || '',
+
+    // แปลง UTC จาก API เป็นเวลาไทยก่อนส่งให้ template เดิม
+    borrowDate: formatThaiDateTime(borrowedAt),
+    dueDate: formatThaiDateTime(returnedAt || dueAt),
+
+    status: returnedAt ? 'Returned' : 'Active',
+
+    totalDays: getDays(borrowedAt, dueAt),
+
+    lateDays:
+      returnedAt && dueAt
+        ? getDays(dueAt, returnedAt)
+        : 0,
+  };
+};
 
 const normalizeSupplyTransaction = (transaction) => ({
   ...transaction,
