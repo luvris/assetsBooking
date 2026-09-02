@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, onMounted, reactive, ref } from 'vue';
 import { api } from './services/api.js';
-
+import keycloak from './auth/keycloak.js';
 import DashboardView from './components/DashboardView.vue';
 import AssetsView from './components/AssetsView.vue';
 import BorrowView from './components/BorrowView.vue';
@@ -279,21 +279,41 @@ const stats = computed(() => {
   };
 });
 
-const keycloak = inject('keycloak', null);
+//const keycloak = inject('keycloak', null);
 
-const userDisplayName = computed(() => (
-  keycloak?.tokenParsed?.name
-  || keycloak?.tokenParsed?.preferred_username
-  || 'ผู้ใช้งาน'
-));
+const userDisplayName = computed(() => {
+  const token = keycloak?.tokenParsed;
 
-const logout = () => {
-  if (keycloak?.logout) {
-    keycloak.logout({
+  const fullName = [
+    token?.given_name,
+    token?.family_name,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    token?.name ||
+    fullName ||
+    token?.preferred_username ||
+    'ผู้ใช้งาน'
+  );
+});
+
+const logout = async () => {
+  try {
+    await keycloak.logout({
       redirectUri: window.location.origin,
     });
+  } catch (error) {
+    console.error('Keycloak logout failed:', error);
+    alert('ไม่สามารถออกจากระบบได้ กรุณาลองใหม่อีกครั้ง');
   }
 };
+
+onMounted(() => {
+  console.log('Keycloak authenticated:', keycloak.authenticated);
+  console.log('Keycloak token parsed:', keycloak.tokenParsed);
+});
 
 const filteredAssets = computed(() => {
   const keyword = assetSearch.value.trim().toLowerCase();
