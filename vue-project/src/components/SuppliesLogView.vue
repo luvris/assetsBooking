@@ -40,12 +40,7 @@ const props = defineProps({
                     <tr v-for="log in logs" :key="log.id" class="hover:bg-slate-50 transition">
                         <!-- วันที่ -->
                         <td class="p-3 text-xs text-slate-500">
-                            <div v-if="log.timestamp && log.timestamp.toDate">
-                                {{ log.timestamp.toDate().toLocaleDateString('th-TH') }}
-                            </div>
-                            <div v-else>
-                                -
-                            </div>
+                            {{ log.timestamp || '-' }}
                         </td>
 
                         <!-- ชื่อวัสดุ -->

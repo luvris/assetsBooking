@@ -82,7 +82,6 @@ const supplyTxForm = reactive({
   note: '',
   requesterName: '',
   department: '',
-  workOrderNo: '',
   createdByCid: 'TEMP-USER',
 });
 
@@ -206,7 +205,19 @@ const normalizeSupplyTransaction = (transaction) => ({
   id: Number(transaction.id),
   supplyId: Number(transaction.supplyId),
   type: transaction.transactionType || transaction.type,
-  timestamp: transaction.createdAt || transaction.timestamp || null,
+
+  // แปลงเวลา UTC จาก API เป็นวันเวลาไทย
+  timestamp: transaction.createdAt
+    ? new Date(transaction.createdAt).toLocaleString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+    : transaction.timestamp || null,
+
   workOrderNo: transaction.workOrderNo || '',
 });
 
@@ -421,34 +432,109 @@ const openAssetModal = (asset = null) => {
 };
 
 const saveAsset = async () => {
-  if (editingAssetId.value) {
-    alert('API แก้ไขครุภัณฑ์ยังไม่ได้สร้าง กรุณาเพิ่มข้อมูลใหม่ก่อน');
-    return;
-  }
+  const payload = {
+    assetCode: assetForm.assetCode.trim(),
+    name: assetForm.name.trim(),
+    brand: assetForm.brand.trim(),
+    model: assetForm.model.trim(),
+    serialNumber: assetForm.serialNumber.trim(),
+    categoryId: Number(assetForm.categoryId),
+    location: assetForm.location.trim(),
+    note: assetForm.note.trim(),
+    status: dbStatusFromUi(assetForm.status),
+  };
 
   try {
-    await api.createAsset({
-      assetCode: assetForm.assetCode,
-      name: assetForm.name,
-      categoryId: Number(assetForm.categoryId),
-      brand: assetForm.brand,
-      model: assetForm.model,
-      serialNumber: assetForm.serialNumber,
-      location: assetForm.location,
-      status: assetForm.status,
-      note: assetForm.note,
-    });
+    const isEditing = Boolean(editingAssetId.value);
+
+    const response = await fetch(
+      isEditing
+        ? `http://localhost:3000/api/assets/${editingAssetId.value}`
+        : 'http://localhost:3000/api/assets',
+      {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    const savedAsset = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        savedAsset.message ||
+        (isEditing
+          ? 'ไม่สามารถแก้ไขครุภัณฑ์ได้'
+          : 'ไม่สามารถเพิ่มครุภัณฑ์ได้'),
+      );
+    }
+    savedAsset.status = uiStatusFromDb(savedAsset.status);
+
+    if (isEditing) {
+      const index = assets.value.findIndex(
+        (item) => item.id === editingAssetId.value,
+      );
+
+      if (index !== -1) {
+        assets.value[index] = {
+          ...assets.value[index],
+          ...savedAsset,
+        };
+      }
+    } else {
+      assets.value.push(savedAsset);
+    }
 
     showAssetModal.value = false;
-    await loadData();
+    editingAssetId.value = null;
+
+    alert(
+      savedAsset.message ||
+      (isEditing ? 'แก้ไขครุภัณฑ์สำเร็จ' : 'เพิ่มครุภัณฑ์สำเร็จ'),
+    );
   } catch (error) {
-    console.error('Save asset failed:', error);
-    alert(error.message);
+    alert(error.message || 'ไม่สามารถบันทึกครุภัณฑ์ได้');
   }
 };
 
-const deleteAsset = async () => {
-  alert('API ลบครุภัณฑ์ยังไม่ได้สร้าง เพื่อป้องกันประวัติยืม–คืนสูญหาย');
+const deleteAsset = async (assetId) => {
+  const asset = assets.value.find((item) => item.id === assetId);
+
+  if (!asset) {
+    alert('ไม่พบข้อมูลครุภัณฑ์ที่ต้องการนำออกจากรายการ');
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `ต้องการนำ "${asset.assetCode} - ${asset.name}" ออกจากรายการใช้งานหรือไม่?\n\n` +
+    'หากกำลังถูกยืมอยู่ จะไม่สามารถนำออกจากรายการได้\n' +
+    'ประวัติยืม–คืนจะยังคงอยู่',
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(
+      `http://localhost:3000/api/assets/${assetId}`,
+      {
+        method: 'DELETE',
+      },
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'ไม่สามารถนำครุภัณฑ์ออกจากรายการได้');
+    }
+
+    assets.value = assets.value.filter((item) => item.id !== assetId);
+
+    alert(data.message || 'นำครุภัณฑ์ออกจากรายการใช้งานสำเร็จ');
+  } catch (error) {
+    alert(error.message || 'ไม่สามารถนำครุภัณฑ์ออกจากรายการได้');
+  }
 };
 
 const openBorrowModal = () => {
@@ -588,63 +674,70 @@ const openSupplyModal = (supply = null) => {
 };
 
 const saveSupply = async () => {
-  if (editingSupplyId.value) {
-    alert('API แก้ไขวัสดุยังไม่ได้สร้าง กรุณาเพิ่มข้อมูลใหม่ก่อน');
-    return;
-  }
+  const payload = {
+    itemCode: supplyForm.itemCode.trim(),
+    name: supplyForm.name.trim(),
+    categoryId: Number(supplyForm.categoryId),
+    unit: supplyForm.unit.trim(),
+    quantity: Number(supplyForm.quantity || 0),
+    minimumQuantity: Number(supplyForm.minimumQuantity || 0),
+    location: supplyForm.location.trim(),
+    note: supplyForm.note.trim(),
+  };
 
-  const itemCode = supplyForm.itemCode?.trim();
-  const name = supplyForm.name?.trim();
-  const categoryId = Number(supplyForm.categoryId);
-  const unit = supplyForm.unit?.trim();
-  const quantity = Number(supplyForm.quantity);
-  const minimumQuantity = Number(supplyForm.minimumQuantity);
-
-  if (!itemCode || !name || !categoryId || !unit) {
-    alert('กรุณากรอกรหัสวัสดุ ชื่อวัสดุ หมวดหมู่ และหน่วยนับให้ครบ');
-    return;
-  }
-
-  if (!Number.isFinite(quantity) || quantity < 0) {
-    alert('จำนวนเริ่มต้นต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
-    return;
-  }
-
-  if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) {
-    alert('ระดับแจ้งเตือนขั้นต่ำต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
-    return;
-  }
+  const isEditing = Boolean(editingSupplyId.value);
 
   try {
-    await api.createSupply({
-      itemCode,
-      name,
-      categoryId,
-      unit,
-      quantity,
-      minimumQuantity,
-      location: supplyForm.location?.trim() || null,
-      note: supplyForm.note?.trim() || null,
-    });
+    const response = await fetch(
+      isEditing
+        ? `http://localhost:3000/api/supplies/${editingSupplyId.value}`
+        : 'http://localhost:3000/api/supplies',
+      {
+        method: isEditing ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
 
-    Object.assign(supplyForm, {
-      itemCode: '',
-      name: '',
-      categoryId: '',
-      unit: '',
-      quantity: 0,
-      minimumQuantity: 0,
-      location: '',
-      note: '',
-    });
+    const savedSupply = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        savedSupply.message ||
+        (isEditing
+          ? 'ไม่สามารถแก้ไขวัสดุสิ้นเปลืองได้'
+          : 'ไม่สามารถเพิ่มวัสดุสิ้นเปลืองได้'),
+      );
+    }
+
+    if (isEditing) {
+      const index = supplies.value.findIndex(
+        (item) => item.id === editingSupplyId.value,
+      );
+
+      if (index !== -1) {
+        supplies.value[index] = {
+          ...supplies.value[index],
+          ...savedSupply,
+        };
+      }
+    } else {
+      supplies.value.push(savedSupply);
+    }
 
     showSupplyModal.value = false;
-    await loadData();
+    editingSupplyId.value = null;
 
-    alert('เพิ่มวัสดุสำเร็จ');
+    alert(
+      savedSupply.message ||
+      (isEditing
+        ? 'แก้ไขวัสดุสิ้นเปลืองสำเร็จ'
+        : 'เพิ่มวัสดุสิ้นเปลืองสำเร็จ'),
+    );
   } catch (error) {
-    console.error('Save supply failed:', error);
-    alert(error?.message || 'ไม่สามารถเพิ่มวัสดุได้');
+    alert(error.message || 'ไม่สามารถบันทึกวัสดุสิ้นเปลืองได้');
   }
 };
 
@@ -662,6 +755,19 @@ const openSupplyTxModal = (supplyId, type) => {
 };
 
 const submitSupplyTx = async () => {
+  const supplyId = Number(supplyTxForm.supplyId);
+  const quantity = Number(supplyTxForm.quantity);
+
+  if (!supplyId) {
+    alert('ไม่พบรายการวัสดุ');
+    return;
+  }
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    alert('กรุณาระบุจำนวนเป็นตัวเลขมากกว่า 0');
+    return;
+  }
+
   if (
     supplyTxForm.type === 'OUT'
     && !supplyTxForm.workOrderNo.trim()
@@ -671,21 +777,28 @@ const submitSupplyTx = async () => {
   }
 
   try {
-    await api.createSupplyTransaction(supplyTxForm.supplyId, {
+    await api.createSupplyTransaction(supplyId, {
       transactionType: supplyTxForm.type,
-      quantity: Number(supplyTxForm.quantity),
-      workOrderNo: supplyTxForm.workOrderNo,
-      requesterName: supplyTxForm.requesterName,
-      department: supplyTxForm.department,
-      note: supplyTxForm.note,
+      quantity,
+      workOrderNo: supplyTxForm.workOrderNo.trim(),
+      requesterName: supplyTxForm.requesterName.trim(),
+      department: supplyTxForm.department.trim(),
+      note: supplyTxForm.note.trim(),
       createdByCid: supplyTxForm.createdByCid || 'TEMP-USER',
     });
 
     supplyTxModal.value = false;
+
     await loadData();
+
+    alert(
+      supplyTxForm.type === 'IN'
+        ? 'บันทึกรับวัสดุเข้าเรียบร้อย'
+        : 'บันทึกการเบิกวัสดุเรียบร้อย',
+    );
   } catch (error) {
     console.error('Save supply transaction failed:', error);
-    alert(error.message);
+    alert(error?.message || 'ไม่สามารถบันทึกรายการวัสดุได้');
   }
 };
 
@@ -855,7 +968,7 @@ const suppliesMonthlySummary = computed(() => {
   const result = {};
 
   for (const transaction of supplyTransactions.value) {
-    const date = new Date(transaction.timestamp || 0);
+    const date = new Date(transaction.createdAt || 0);
 
     if (Number.isNaN(date.getTime())) continue;
 
@@ -1123,23 +1236,13 @@ const suppliesMonthlySummary = computed(() => {
 
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">
-              หมายเลขใบงานซ่อม (ถ้ามี)
-            </label>
-            <input v-model="assetForm.repairTicket" type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น TICKET-9921" />
-          </div>
-
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
               สถานะปัจจุบัน
             </label>
             <select v-model="assetForm.status"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
               <option value="Available">พร้อมใช้งาน</option>
-              <option value="Borrowed">กำลังถูกยืมใช้งาน</option>
               <option value="Maintenance">อยู่ระหว่างซ่อมบำรุง</option>
-              <option value="Retired">จำหน่าย/เลิกใช้งาน</option>
+              <option value="Retired">เลิกใช้งาน</option>
             </select>
           </div>
         </div>
@@ -1291,10 +1394,12 @@ const suppliesMonthlySummary = computed(() => {
           <div class="grid grid-cols-2 gap-2">
             <div>
               <label class="block text-xs font-medium text-slate-600 mb-1">
-                จำนวนเริ่มต้น
+                จำนวนที่มี
               </label>
-              <input v-model.number="supplyForm.quantity" type="number"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <input v-model.number="supplyForm.quantity" type="number" min="0" :readonly="Boolean(editingSupplyId)"
+                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none" :class="editingSupplyId
+                  ? 'cursor-not-allowed bg-slate-100 text-slate-500'
+                  : 'bg-white focus:ring-2 focus:ring-indigo-500'" />
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-600 mb-1">

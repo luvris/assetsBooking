@@ -102,8 +102,8 @@ const emits = defineEmits([
                 {{
                   item.status === 'Available' ? 'พร้อมใช้งาน' :
                   item.status === 'Borrowed' ? 'กำลังถูกยืม' :
-                  item.status === 'Maintenance' ? 'อยู่ระหว่างซ่อมบำรุง' :
-                  item.status === 'Retired' ? 'จำหน่าย/เลิกใช้งาน' :
+                  item.status === 'Maintenance' ? 'อยู่ระหว่างซ่อมบำรุง' : 
+                  item.status === 'Retired' ? 'เลิกใช้งาน' :
                   'ไม่ทราบสถานะ'
                 }}
               </span>

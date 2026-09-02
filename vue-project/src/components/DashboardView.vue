@@ -108,7 +108,7 @@ const groupSuppliesByCategory = computed(() => {
                                 <td class="p-3">
                                     <button @click="$emit('return-asset', rec)"
                                         class="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs hover:bg-emerald-700 transition">
-                                        บันทึกคืนอุปกรณ์
+                                        ส่งคืนอุปกรณ์
                                     </button>
                                 </td>
 

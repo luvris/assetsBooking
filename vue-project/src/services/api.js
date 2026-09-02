@@ -1,9 +1,22 @@
+import keycloak from "@/auth/keycloak";
+
 const API_URL = 'http://localhost:3000/api';
 
 async function request(path, options = {}) {
+    try {
+        await keycloak.updateToken(30);
+    } catch (error) {
+        console.error('ไม่สามารถ refresh Keycloak token ได้:', error);
+
+        await keycloak.login();
+        throw new Error('เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    }
+
     const response = await fetch(`${API_URL}${path}`, {
         headers: {
             'Content-Type': 'application/json',
+            Authorization: `Bearer ${keycloak.token}`,
+
             ...(options.headers || {}),
         },
         ...options,
@@ -18,7 +31,7 @@ async function request(path, options = {}) {
             data.message ||
             data.error ||
             data.details ||
-            `API error ${response.status}: ${response.statusText}`
+            `API error ${response.status}: ${response.statusText}`,
         );
     }
 
@@ -40,10 +53,24 @@ export const api = {
         body: JSON.stringify(payload),
     }),
 
+    updateAsset: (assetId, payload) => request(`/assets/${assetId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    }),
+
+    deleteAsset: (assetId) => request(`/assets/${assetId}`, {
+        method: 'DELETE',
+    }),
+
     getSupplies: () => request('/supplies'),
 
     createSupply: (payload) => request('/supplies', {
         method: 'POST',
+        body: JSON.stringify(payload),
+    }),
+
+    updateSupply: (supplyId, payload) => request(`/supplies/${supplyId}`, {
+        method: 'PUT',
         body: JSON.stringify(payload),
     }),
 

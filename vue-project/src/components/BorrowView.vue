@@ -55,19 +55,14 @@ const getStatusText = (status) => {
           ระบบบันทึกการยืม–คืนอุปกรณ์
         </h2>
 
-        <button
-          v-if="clearAllBorrowLogs"
-          @click="clearAllBorrowLogs"
-          class="mt-2 px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg text-xs font-medium hover:bg-rose-100"
-        >
+        <button v-if="clearAllBorrowLogs" @click="clearAllBorrowLogs"
+          class="mt-2 px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg text-xs font-medium hover:bg-rose-100">
           ลบประวัติยืม–คืนทั้งหมด (DEV)
         </button>
       </div>
 
-      <button
-        @click="$emit('open-borrow-modal')"
-        class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium shadow-sm hover:bg-indigo-700 transition"
-      >
+      <button @click="$emit('open-borrow-modal')"
+        class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-medium shadow-sm hover:bg-indigo-700 transition">
         บันทึกการยืมอุปกรณ์
       </button>
     </div>
@@ -88,85 +83,67 @@ const getStatusText = (status) => {
         </thead>
 
         <tbody class="divide-y divide-slate-100">
-          <tr
-            v-for="record in borrowRecords"
-            :key="record.id"
-            class="hover:bg-slate-50 transition"
-          >
+          <tr v-for="record in borrowRecords" :key="record.id" class="hover:bg-slate-50 transition">
             <!-- 1. อุปกรณ์ -->
-            <td class="p-4">
-              <div class="font-medium text-slate-800">
-                {{ getAssetName(record.assetId) }}
-              </div>
+              <td class="p-4">
+                <div class="font-medium text-slate-800">
+                  {{ record.assetName || '-' }}
+                </div>
 
-              <div
-                v-if="getAssetCode(record.assetId)"
-                class="mt-0.5 text-xs text-slate-400"
-              >
-                {{ getAssetCode(record.assetId) }}
-              </div>
-            </td>
+                <div v-if="record.assetCode" class="mt-0.5 text-xs text-slate-400">
+                  {{ record.assetCode }}
+                </div>
+              </td>
 
-            <!-- 2. ผู้ยืม -->
-            <td class="p-4 text-slate-700">
-              {{ record.borrowerName || '-' }}
-            </td>
+              <!-- 2. ผู้ยืม -->
+              <td class="p-4 text-slate-700">
+                {{ record.borrowerName || '-' }}
+              </td>
 
-            <!-- 3. สถานที่ -->
-            <td class="p-4 text-slate-700">
-              {{ record.location || '-' }}
-            </td>
+              <!-- 3. สถานที่ -->
+              <td class="p-4 text-slate-700">
+                {{ record.location || '-' }}
+              </td>
 
-            <!-- 4. ช่วงวันที่ยืม -->
-            <td class="p-4 text-slate-700 whitespace-nowrap">
-              <div>
-                {{ record.borrowDate || '-' }} → {{ record.dueDate || '-' }}
-              </div>
+              <!-- 4. ช่วงวันที่ยืม -->
+              <td class="p-4 text-slate-700 whitespace-nowrap">
+                <div>
+                  {{ record.borrowDate || '-' }} → {{ record.dueDate || '-' }}
+                </div>
 
-              <div class="mt-0.5 text-xs text-slate-400">
-                รวม {{ record.totalDays || 0 }} วัน
-              </div>
-            </td>
+                <div class="mt-0.5 text-xs text-slate-400">
+                  รวม {{ record.totalDays || 0 }} วัน
+                </div>
+              </td>
 
-            <!-- 5. งาน/โครงการ -->
-            <td class="p-4 text-slate-700">
-              {{ record.jobTask || '-' }}
-            </td>
+              <!-- 5. งาน/โครงการ -->
+              <td class="p-4 text-slate-700">
+                {{ record.jobTask || '-' }}
+              </td>
 
-            <!-- 6. สถานะ -->
-            <td class="p-4">
-              <span
-                class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap"
-                :class="getStatusClass(record.status)"
-              >
-                {{ getStatusText(record.status) }}
-              </span>
+              <!-- 6. สถานะ -->
+              <td class="p-4">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap"
+                  :class="getStatusClass(record.status)">
+                  {{ getStatusText(record.status) }}
+                </span>
 
-              <div
-                v-if="record.status === 'Returned' && record.lateDays > 0"
-                class="mt-1 text-xs text-rose-600"
-              >
-                เกินกำหนด {{ record.lateDays }} วัน
-              </div>
-            </td>
+                <div v-if="record.status === 'Returned' && record.lateDays > 0" class="mt-1 text-xs text-rose-600">
+                  เกินกำหนด {{ record.lateDays }} วัน
+                </div>
+              </td>
 
-            <!-- 7. การดำเนินการ -->
-            <td class="p-4 text-right">
-              <button
-                v-if="record.status === 'Active'"
-                @click="$emit('return-asset', record)"
-                class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition whitespace-nowrap"
-              >
-                บันทึกคืนอุปกรณ์
-              </button>
+              <!-- 7. การดำเนินการ -->
+              <td class="p-4 text-right">
+                <button v-if="record.status === 'Active'" @click="$emit('return-asset', record)"
+                  class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition whitespace-nowrap">
+                  บันทึกคืนอุปกรณ์
+                </button>
 
-              <span
-                v-else
-                class="text-xs text-slate-400"
-              >
-                ดำเนินการแล้ว
-              </span>
-            </td>
+                <span v-else class="text-xs text-slate-400">
+                  ดำเนินการแล้ว
+                </span>
+              </td>
           </tr>
 
           <!-- กรณียังไม่มีรายการ -->
