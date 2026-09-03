@@ -140,7 +140,18 @@ const normalizeSupply = (supply) => ({
 const formatThaiDateTime = (dateValue) => {
   if (!dateValue) return '';
 
-  const date = new Date(dateValue);
+  let s = String(dateValue).trim();
+
+  // เวลาในฐานข้อมูล MariaDB ถูกบันทึกเป็นเวลาไทย (Asia/Bangkok) อยู่แล้ว
+  // แต่ serializer ส่ง ISO string ที่มี 'Z' ต่อท้ายมา ทำให้ new Date() เข้าใจผิดว่าเป็นเวลา UTC
+  // เมื่อถูกแปลงด้วย timeZone: 'Asia/Bangkok' จึงกลายเป็นการบวกเวลาซ้ำ +7 ชั่วโมง (เช่น 09:45 กลายเป็น 16:45)
+  if (s.endsWith('Z')) {
+    s = s.slice(0, -1) + '+07:00';
+  } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
+    s = s.replace(' ', 'T') + '+07:00';
+  }
+
+  const date = new Date(s);
 
   if (Number.isNaN(date.getTime())) {
     return '';
@@ -206,16 +217,9 @@ const normalizeSupplyTransaction = (transaction) => ({
   supplyId: Number(transaction.supplyId),
   type: transaction.transactionType || transaction.type,
 
-  // แปลงเวลา UTC จาก API เป็นวันเวลาไทย
+  // แปลงวันเวลาไทยให้ถูกต้อง
   timestamp: transaction.createdAt
-    ? new Date(transaction.createdAt).toLocaleString('th-TH', {
-      timeZone: 'Asia/Bangkok',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    ? formatThaiDateTime(transaction.createdAt)
     : transaction.timestamp || null,
 
   workOrderNo: transaction.workOrderNo || '',
@@ -467,29 +471,10 @@ const saveAsset = async () => {
   try {
     const isEditing = Boolean(editingAssetId.value);
 
-    const response = await fetch(
-      isEditing
-        ? `http://localhost:3000/api/assets/${editingAssetId.value}`
-        : 'http://localhost:3000/api/assets',
-      {
-        method: isEditing ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      },
-    );
+    const savedAsset = isEditing
+      ? await api.updateAsset(editingAssetId.value, payload)
+      : await api.createAsset(payload);
 
-    const savedAsset = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        savedAsset.message ||
-        (isEditing
-          ? 'ไม่สามารถแก้ไขครุภัณฑ์ได้'
-          : 'ไม่สามารถเพิ่มครุภัณฑ์ได้'),
-      );
-    }
     savedAsset.status = uiStatusFromDb(savedAsset.status);
 
     if (isEditing) {
@@ -536,22 +521,11 @@ const deleteAsset = async (assetId) => {
   if (!confirmed) return;
 
   try {
-    const response = await fetch(
-      `http://localhost:3000/api/assets/${assetId}`,
-      {
-        method: 'DELETE',
-      },
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'ไม่สามารถนำครุภัณฑ์ออกจากรายการได้');
-    }
+    const data = await api.deleteAsset(assetId);
 
     assets.value = assets.value.filter((item) => item.id !== assetId);
 
-    alert(data.message || 'นำครุภัณฑ์ออกจากรายการใช้งานสำเร็จ');
+    alert(data?.message || 'นำครุภัณฑ์ออกจากรายการใช้งานสำเร็จ');
   } catch (error) {
     alert(error.message || 'ไม่สามารถนำครุภัณฑ์ออกจากรายการได้');
   }
@@ -708,29 +682,9 @@ const saveSupply = async () => {
   const isEditing = Boolean(editingSupplyId.value);
 
   try {
-    const response = await fetch(
-      isEditing
-        ? `http://localhost:3000/api/supplies/${editingSupplyId.value}`
-        : 'http://localhost:3000/api/supplies',
-      {
-        method: isEditing ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      },
-    );
-
-    const savedSupply = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        savedSupply.message ||
-        (isEditing
-          ? 'ไม่สามารถแก้ไขวัสดุสิ้นเปลืองได้'
-          : 'ไม่สามารถเพิ่มวัสดุสิ้นเปลืองได้'),
-      );
-    }
+    const savedSupply = isEditing
+      ? await api.updateSupply(editingSupplyId.value, payload)
+      : await api.createSupply(payload);
 
     if (isEditing) {
       const index = supplies.value.findIndex(
