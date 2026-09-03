@@ -44,3 +44,8 @@ __screenshots__/
 .env.*.local
 *.pem
 keycloak.json
+
+dist
+Dockerfile
+compose.yaml
+.dockerignore
