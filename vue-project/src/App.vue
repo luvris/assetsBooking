@@ -423,9 +423,34 @@ const saveCategory = async () => {
   }
 };
 
-const deleteCategory = async () => {
-  alert('API ลบหมวดหมู่ยังไม่ได้สร้าง เพื่อป้องกันข้อมูลครุภัณฑ์/วัสดุอ้างอิงผิดพลาด');
-};
+async function deleteCategory(categoryId) {
+  const category = categories.value.find(
+    (item) => item.id === categoryId,
+  );
+
+  const categoryName =
+    category?.category_name ||
+    category?.name ||
+    `รหัส ${categoryId}`;
+
+  const confirmed = window.confirm(
+    `ต้องการลบหมวดหมู่ "${categoryName}" ใช่หรือไม่?`,
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await api.deleteCategory(categoryId);
+
+    categories.value = categories.value.filter(
+      (item) => item.id !== categoryId,
+    );
+
+    alert('ลบหมวดหมู่เรียบร้อยแล้ว');
+  } catch (error) {
+    alert(error.message || 'ไม่สามารถลบหมวดหมู่ได้');
+  }
+}
 
 const openAssetModal = (asset = null) => {
   if (asset) {

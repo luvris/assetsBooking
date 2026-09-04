@@ -95,4 +95,7 @@ export const api = {
             body: JSON.stringify(payload),
         },
     ),
+    deleteCategory: (categoryId) => request(`/categories/${categoryId}`, {
+  method: 'DELETE',
+}),
 };

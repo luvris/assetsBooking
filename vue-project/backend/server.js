@@ -127,6 +127,59 @@ app.post('/api/categories', async (req, res) => {
   }
 });
 
+app.delete('/api/categories/:id', async (req, res) => {
+  const categoryId = Number(req.params.id);
+
+  if (!Number.isInteger(categoryId) || categoryId <= 0) {
+    return res.status(400).json({
+      message: 'รหัสหมวดหมู่ไม่ถูกต้อง',
+    });
+  }
+
+  try {
+    const rows = await pool.execute(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM inventory_assets WHERE category_id = ?) AS asset_count,
+          (SELECT COUNT(*) FROM supplies_stock WHERE category_id = ?) AS supply_count
+      `,
+      [categoryId, categoryId],
+    );
+
+    const usage = rows[0] || {};
+    const assetCount = Number(usage.asset_count || 0);
+    const supplyCount = Number(usage.supply_count || 0);
+
+    if (assetCount > 0 || supplyCount > 0) {
+      return res.status(409).json({
+        message:
+          'ไม่สามารถลบหมวดหมู่นี้ได้ เพราะยังมีครุภัณฑ์หรือวัสดุสิ้นเปลืองอ้างอิงอยู่',
+      });
+    }
+
+    const result = await pool.execute(
+      'DELETE FROM categories WHERE id = ?',
+      [categoryId],
+    );
+
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({
+        message: 'ไม่พบหมวดหมู่ที่ต้องการลบ',
+      });
+    }
+
+    return res.status(200).json({
+      message: 'ลบหมวดหมู่เรียบร้อยแล้ว',
+    });
+  } catch (error) {
+    console.error('Delete category error:', error);
+
+    return res.status(500).json({
+      message: 'เกิดข้อผิดพลาดในการลบหมวดหมู่',
+    });
+  }
+});
+
 app.put('/api/assets/:id', async (req, res) => {
   const assetId = Number(req.params.id);
 
