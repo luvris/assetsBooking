@@ -109,33 +109,41 @@ const currentMonthData = computed(() => {
                             <th class="p-3 text-right">จำนวนที่ใช้ (OUT)</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        <template v-for="dept in currentMonthData.departments" :key="dept.department">
-                            <!-- แถวหัวข้อแผนก + ยอดรวมของแผนก -->
-                            <tr class="bg-white">
-                                <td class="p-3 text-sm font-medium text-slate-800">
-                                    {{ dept.department }}
-                                </td>
+                    <tbody v-for="dept in currentMonthData.departments" :key="dept.department"
+                        class="divide-y divide-slate-100">
+                        <!-- หัวข้อหน่วยงาน / แผนก -->
+                        <tr class="bg-white">
+                            <td class="p-3 text-sm font-semibold text-slate-800">
+                                {{ dept.department || 'ไม่ระบุแผนก' }}
+                            </td>
 
-                                <td class="p-3 text-right text-sm font-semibold text-slate-800">
-                                    {{ dept.totalOut }}
-                                </td>
-                            </tr>
+                            <td class="p-3 text-right text-sm font-semibold text-slate-800">
+                                {{ dept.totalOut }}
+                            </td>
+                        </tr>
 
-                            <!-- แถวรายการวัสดุของแต่ละแผนก -->
-                            <tr v-for="item in dept.items" :key="`${dept.department}-${item.supplyId}`"
-                                class="bg-slate-50/50">
-                                <td class="px-3 pb-2 pl-7 text-xs text-slate-600">
-                                    • {{ item.name }}
-                                </td>
+                        <!-- รายการวัสดุภายใต้แผนก -->
+                        <tr v-for="item in dept.items" :key="`${dept.department}-${item.supplyId}`"
+                            class="bg-slate-50/50">
+                            <td class="px-3 py-2 pl-7 text-xs text-slate-600">
+                                •
+                                <span v-if="item.itemCode" class="font-medium text-emerald-600">
+                                    {{ item.itemCode }}
+                                </span>
 
-                                <td class="px-3 pb-2 text-right text-xs font-medium text-slate-800 whitespace-nowrap">
-                                    {{ item.totalQty }} {{ item.unit }}
-                                </td>
-                            </tr>
-                        </template>
+                                <span v-if="item.itemCode"> - </span>
 
-                        <tr v-if="currentMonthData.departments.length === 0">
+                                <span>{{ item.name || '-' }}</span>
+                            </td>
+
+                            <td class="whitespace-nowrap px-3 py-2 text-right text-xs font-medium text-slate-800">
+                                {{ item.totalQty }} {{ item.unit }}
+                            </td>
+                        </tr>
+                    </tbody>
+
+                    <tbody v-if="currentMonthData.departments.length === 0">
+                        <tr>
                             <td colspan="2" class="p-4 text-center text-slate-400">
                                 ยังไม่มีการเบิกใช้ (OUT) ในเดือนนี้
                             </td>

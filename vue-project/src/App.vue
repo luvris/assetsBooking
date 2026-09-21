@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { api } from './services/api.js';
 import keycloak from './auth/keycloak.js';
 import DashboardView from './components/DashboardView.vue';
@@ -273,15 +273,14 @@ const normalizeSupplyTransaction = (transaction) => {
   return {
     ...transaction,
 
-    // DB column: supply_id
+    id: Number(transaction.id),
+
     supplyId: Number(
       transaction.supplyId ??
       transaction.supply_id ??
       0,
     ),
 
-    // DB column: transaction_type
-    // แปลงเป็นตัวพิมพ์ใหญ่ เช่น IN / OUT
     type: String(
       transaction.type ??
       transaction.transactionType ??
@@ -293,7 +292,6 @@ const normalizeSupplyTransaction = (transaction) => {
 
     quantity: Number(transaction.quantity ?? 0),
 
-    // DB column: created_at
     createdAt:
       transaction.createdAt ??
       transaction.created_at ??
@@ -306,7 +304,6 @@ const normalizeSupplyTransaction = (transaction) => {
         )
         : transaction.timestamp || null,
 
-    // DB column: work_order_no
     workOrderNo:
       transaction.workOrderNo ??
       transaction.work_order_no ??
@@ -317,7 +314,13 @@ const normalizeSupplyTransaction = (transaction) => {
       transaction.requester_name ??
       '',
 
-    department: transaction.department ?? '',
+    // รองรับ department ทุกชื่อที่ API อาจส่งมา
+    department:
+      transaction.department ??
+      transaction.departmentName ??
+      transaction.department_name ??
+      transaction.location ??
+      '',
 
     note: transaction.note ?? '',
   };
@@ -995,12 +998,33 @@ const supplyLogs = computed(() => (
 
       return {
         ...transaction,
-        supplyName: transaction.supplyName || supply?.name || '',
-        unit: transaction.unit || supply?.unit || '',
-        categoryId: supply?.categoryId || '',
+
+        itemCode:
+          transaction.itemCode ||
+          transaction.item_code ||
+          transaction.itemcode ||
+          supply?.itemCode ||
+          supply?.item_code ||
+          supply?.itemcode ||
+          '',
+
+        supplyName:
+          transaction.supplyName ||
+          transaction.supply_name ||
+          transaction.supplyname ||
+          supply?.name ||
+          '-',
+
+        unit:
+          transaction.unit ||
+          supply?.unit ||
+          '',
+
+        categoryId: supply?.categoryId,
+
         categoryName: supply
           ? getCategoryName(supply.categoryId)
-          : '',
+          : '-',
       };
     })
     .sort((a, b) => {
@@ -1149,72 +1173,122 @@ const suppliesUsageSummary = computed(() => {
 });
 
 const suppliesMonthlySummary = computed(() => {
-  const result = {};
+  const monthMap = {};
 
   for (const transaction of supplyTransactions.value) {
-    const date = new Date(transaction.createdAt || 0);
+    const dateValue = transaction.createdAt || transaction.created_at;
+
+    if (!dateValue) continue;
+
+    const date = new Date(dateValue);
 
     if (Number.isNaN(date.getTime())) continue;
 
-    const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const month = `${date.getFullYear()}-${String(
+      date.getMonth() + 1,
+    ).padStart(2, '0')}`;
 
-    if (!result[month]) {
-      result[month] = {
+    if (!monthMap[month]) {
+      monthMap[month] = {
         month,
         totalIn: 0,
         totalOut: 0,
-        departments: {},
+        departmentsMap: {},
       };
     }
 
+    const monthData = monthMap[month];
     const quantity = Number(transaction.quantity) || 0;
+    const type = String(transaction.type || '').trim().toUpperCase();
 
-    if (transaction.type === 'IN') {
-      result[month].totalIn += quantity;
+    if (type === 'IN') {
+      monthData.totalIn += quantity;
       continue;
     }
 
-    if (transaction.type !== 'OUT') continue;
+    if (type !== 'OUT') continue;
 
-    result[month].totalOut += quantity;
+    monthData.totalOut += quantity;
 
-    const department = transaction.department || 'ไม่ระบุแผนก';
+    const department = String(
+      transaction.department ||
+      transaction.departmentName ||
+      transaction.department_name ||
+      transaction.location ||
+      'ไม่ระบุแผนก',
+    ).trim() || 'ไม่ระบุแผนก';
 
-    if (!result[month].departments[department]) {
-      result[month].departments[department] = {
+    if (!monthData.departmentsMap[department]) {
+      monthData.departmentsMap[department] = {
         department,
         totalOut: 0,
-        items: {},
+        itemsMap: {},
       };
     }
 
-    const departmentData = result[month].departments[department];
+    const departmentData = monthData.departmentsMap[department];
     departmentData.totalOut += quantity;
 
-    if (!departmentData.items[transaction.supplyId]) {
-      departmentData.items[transaction.supplyId] = {
-        supplyId: transaction.supplyId,
-        name: transaction.supplyName || '',
-        unit: transaction.unit || '',
+    const supplyId = Number(
+      transaction.supplyId ?? transaction.supply_id ?? 0,
+    );
+
+    if (!departmentData.itemsMap[supplyId]) {
+      const supply = supplies.value.find(
+        (item) => Number(item.id) === supplyId,
+      );
+
+      departmentData.itemsMap[supplyId] = {
+        supplyId,
+
+        itemCode:
+          transaction.itemCode ||
+          transaction.item_code ||
+          supply?.itemCode ||
+          supply?.item_code ||
+          '',
+
+        name:
+          transaction.supplyName ||
+          transaction.supply_name ||
+          supply?.name ||
+          'ไม่ระบุวัสดุ',
+
+        unit:
+          transaction.unit ||
+          supply?.unit ||
+          '',
+
         totalQty: 0,
       };
     }
 
-    departmentData.items[transaction.supplyId].totalQty += quantity;
+    departmentData.itemsMap[supplyId].totalQty += quantity;
   }
 
-  const summary = Object.values(result)
-    .map((item) => ({
-      month: item.month,
-      totalIn: item.totalIn,
-      totalOut: item.totalOut,
-      departments: Object.values(item.departments).map((department) => ({
-        department: department.department,
-        totalOut: department.totalOut,
-        items: Object.values(department.items),
-      })),
+  const summary = Object.values(monthMap)
+    .map((monthData) => ({
+      month: monthData.month,
+      totalIn: monthData.totalIn,
+      totalOut: monthData.totalOut,
+
+      departments: Object.values(monthData.departmentsMap)
+        .map((department) => ({
+          department: department.department,
+          totalOut: department.totalOut,
+
+          items: Object.values(department.itemsMap).sort((a, b) =>
+            String(a.itemCode || a.name).localeCompare(
+              String(b.itemCode || b.name),
+              'th',
+            ),
+          ),
+        }))
+        .sort((a, b) =>
+          a.department.localeCompare(b.department, 'th'),
+        ),
     }))
-    .sort((a, b) => (a.month < b.month ? 1 : -1));
+    .sort((a, b) => b.month.localeCompare(a.month));
 
   return {
     months: summary.map((item) => item.month),

@@ -70,8 +70,12 @@ const {
                                     {{ log.supplyName || '-' }}
                                 </div>
 
-                                <div v-if="log.unit" class="text-xs text-slate-400">
-                                    หน่วย: {{ log.unit }}
+                                <div v-if="log.itemCode" class="mt-0.5 text-xs font-medium text-emerald-600">
+                                    รหัสวัสดุ: {{ log.itemCode }}
+                                </div>
+
+                                <div class="text-xs text-slate-500">
+                                    หน่วย: {{ log.unit || '-' }}
                                 </div>
                             </td>
 
@@ -83,8 +87,8 @@ const {
                                 <span
                                     class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold"
                                     :class="log.type === 'IN'
-                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                            : 'border-rose-200 bg-rose-50 text-rose-700'
+                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                        : 'border-rose-200 bg-rose-50 text-rose-700'
                                         ">
                                     <span v-if="log.type === 'IN'">
                                         +{{ log.quantity }}
