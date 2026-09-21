@@ -1,4 +1,8 @@
 <script setup>
+import { computed } from 'vue';
+import usePagination from '../composables/usePagination.js';
+import PaginationBar from './PaginationBar.vue';
+
 const props = defineProps({
   supplies: { type: Array, required: true },
   categories: { type: Array, required: true },
@@ -12,6 +16,21 @@ const emits = defineEmits([
   'open-supply-modal',
   'open-supply-tx-modal',
 ]);
+
+// แบ่งหน้าฝั่ง client หน้าละ 5 รายการ (ค่าเริ่มต้นของ usePagination)
+// - คำค้นหาเปลี่ยน -> กลับไปหน้าแรก
+// - รายการถูกกรองจนหน้าปัจจุบันไม่มีข้อมูล -> ถอยกลับหน้าที่มีข้อมูล
+const {
+  currentPage,
+  totalItems,
+  totalPages,
+  startIndex,
+  endIndex,
+  paginatedItems: paginatedSupplies,
+  goToPage,
+} = usePagination(computed(() => props.supplies), {
+  resetKeys: [() => props.supplySearch],
+});
 </script>
 
 <template>
@@ -47,7 +66,7 @@ const emits = defineEmits([
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
-          <tr v-for="item in supplies" :key="item.id" class="hover:bg-slate-50 transition">
+          <tr v-for="item in paginatedSupplies" :key="item.id" class="hover:bg-slate-50 transition">
             <td class="p-3 font-medium text-slate-800">
               {{ item.name }}
             </td>
@@ -78,13 +97,23 @@ const emits = defineEmits([
               </button>
             </td>
           </tr>
-          <tr v-if="supplies.length === 0">
+          <tr v-if="totalItems === 0">
             <td colspan="5" class="p-8 text-center text-slate-400">
               ไม่พบรายการวัสดุที่ตรงกับเงื่อนไขการค้นหา
             </td>
           </tr>
         </tbody>
       </table>
+
+      <PaginationBar
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :start-index="startIndex"
+        :end-index="endIndex"
+        item-label="รายการวัสดุ"
+        @update:current-page="goToPage"
+      />
     </div>
   </section>
 </template>

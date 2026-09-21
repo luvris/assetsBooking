@@ -1,4 +1,8 @@
 <script setup>
+import { computed } from 'vue';
+import usePagination from '../composables/usePagination.js';
+import PaginationBar from './PaginationBar.vue';
+
 const props = defineProps({
   assets: {
     type: Array,
@@ -18,6 +22,18 @@ defineEmits([
   'open-borrow-modal',
   'return-asset',
 ]);
+
+// แบ่งหน้าฝั่ง client หน้าละ 5 รายการ (ค่าเริ่มต้นของ usePagination)
+// - รายการลดลง (เช่น ลบประวัติ/คืนอุปกรณ์) -> ถอยกลับหน้าที่มีข้อมูล
+const {
+  currentPage,
+  totalItems,
+  totalPages,
+  startIndex,
+  endIndex,
+  paginatedItems: paginatedBorrowRecords,
+  goToPage,
+} = usePagination(computed(() => props.borrowRecords));
 
 const getAssetName = (assetId) => {
   const asset = props.assets.find(item => item.id === assetId);
@@ -83,7 +99,7 @@ const getStatusText = (status) => {
         </thead>
 
         <tbody class="divide-y divide-slate-100">
-          <tr v-for="record in borrowRecords" :key="record.id" class="hover:bg-slate-50 transition">
+          <tr v-for="record in paginatedBorrowRecords" :key="record.id" class="hover:bg-slate-50 transition">
             <!-- 1. อุปกรณ์ -->
               <td class="p-4">
                 <div class="font-medium text-slate-800">
@@ -147,13 +163,23 @@ const getStatusText = (status) => {
           </tr>
 
           <!-- กรณียังไม่มีรายการ -->
-          <tr v-if="borrowRecords.length === 0">
+          <tr v-if="totalItems === 0">
             <td colspan="7" class="p-8 text-center text-slate-400">
               ยังไม่มีประวัติการยืม–คืนอุปกรณ์
             </td>
           </tr>
         </tbody>
       </table>
+
+      <PaginationBar
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :start-index="startIndex"
+        :end-index="endIndex"
+        item-label="รายการยืม–คืน"
+        @update:current-page="goToPage"
+      />
     </div>
   </section>
 </template>

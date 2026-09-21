@@ -1,9 +1,25 @@
 <script setup>
+import { computed } from 'vue';
+import usePagination from '../composables/usePagination.js';
+import PaginationBar from './PaginationBar.vue';
+
 const props = defineProps({
   categories: { type: Array, required: true },
 });
 
 const emits = defineEmits(['open-category-modal', 'delete-category']);
+
+// แบ่งหน้าฝั่ง client หน้าละ 5 รายการ (ค่าเริ่มต้นของ usePagination)
+// - ลบหมวดหมู่จนหน้าปัจจุบันไม่มีข้อมูล -> ถอยกลับหน้าที่มีข้อมูล
+const {
+  currentPage,
+  totalItems,
+  totalPages,
+  startIndex,
+  endIndex,
+  paginatedItems: paginatedCategories,
+  goToPage,
+} = usePagination(computed(() => props.categories));
 </script>
 
 <template>
@@ -33,7 +49,7 @@ const emits = defineEmits(['open-category-modal', 'delete-category']);
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr
-            v-for="cat in categories"
+            v-for="cat in paginatedCategories"
             :key="cat.id"
             class="hover:bg-slate-50 transition"
           >
@@ -52,13 +68,23 @@ const emits = defineEmits(['open-category-modal', 'delete-category']);
               </button>
             </td>
           </tr>
-          <tr v-if="categories.length === 0">
+          <tr v-if="totalItems === 0">
             <td colspan="3" class="p-6 text-center text-slate-400">
               ยังไม่มีหมวดหมู่ โปรดเพิ่มหมวดหมู่ใหม่
             </td>
           </tr>
         </tbody>
       </table>
+
+      <PaginationBar
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :start-index="startIndex"
+        :end-index="endIndex"
+        item-label="หมวดหมู่"
+        @update:current-page="goToPage"
+      />
     </div>
   </section>
 </template>

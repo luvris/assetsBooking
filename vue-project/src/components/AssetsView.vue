@@ -1,4 +1,8 @@
 <script setup>
+import { computed } from 'vue';
+import usePagination from '../composables/usePagination.js';
+import PaginationBar from './PaginationBar.vue';
+
 const props = defineProps({
   assets: { type: Array, required: true },
   assetSearch: { type: String, required: true },
@@ -14,6 +18,21 @@ const emits = defineEmits([
   'open-asset-modal',
   'delete-asset',
 ]);
+
+// แบ่งหน้าฝั่ง client หน้าละ 5 รายการ (ค่าเริ่มต้นของ usePagination)
+// - ค้นหา / เปลี่ยนฟิลเตอร์สถานะ -> กลับไปหน้าแรก
+// - รายการถูกกรองจนหน้าปัจจุบันไม่มีข้อมูล -> ถอยกลับหน้าที่มีข้อมูล
+const {
+  currentPage,
+  totalItems,
+  totalPages,
+  startIndex,
+  endIndex,
+  paginatedItems: paginatedAssets,
+  goToPage,
+} = usePagination(computed(() => props.assets), {
+  resetKeys: [() => props.assetSearch, () => props.assetStatusFilter],
+});
 </script>
 
 <template>
@@ -68,7 +87,7 @@ const emits = defineEmits([
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr
-            v-for="item in assets"
+            v-for="item in paginatedAssets"
             :key="item.id"
             class="hover:bg-slate-50 transition"
           >
@@ -123,13 +142,23 @@ const emits = defineEmits([
               </button>
             </td>
           </tr>
-          <tr v-if="assets.length === 0">
+          <tr v-if="totalItems === 0">
             <td colspan="7" class="p-8 text-center text-slate-400">
               ไม่พบครุภัณฑ์/อุปกรณ์ที่ตรงกับเงื่อนไขการค้นหา
             </td>
           </tr>
         </tbody>
       </table>
+
+      <PaginationBar
+        :current-page="currentPage"
+        :total-pages="totalPages"
+        :total-items="totalItems"
+        :start-index="startIndex"
+        :end-index="endIndex"
+        item-label="รายการครุภัณฑ์"
+        @update:current-page="goToPage"
+      />
     </div>
   </section>
 </template>
