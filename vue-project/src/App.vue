@@ -5,6 +5,7 @@ import keycloak from './auth/keycloak.js';
 import DashboardView from './components/DashboardView.vue';
 import AssetsView from './components/AssetsView.vue';
 import BorrowView from './components/BorrowView.vue';
+import BorrowCalendarView from './components/BorrowCalendarView.vue';
 import SuppliesView from './components/SuppliesView.vue';
 import CategoriesView from './components/CategoriesView.vue';
 import SuppliesLogView from './components/SuppliesLogView.vue';
@@ -168,9 +169,29 @@ const formatThaiDateTime = (dateValue) => {
 };
 
 const normalizeBorrow = (record) => {
-  const borrowedAt = record.borrowedAt || '';
-  const dueAt = record.dueAt || '';
-  const returnedAt = record.returnedAt || '';
+  // รองรับชื่อ field ที่ API อาจส่งมาแตกต่างกัน
+  const borrowedAt =
+    record.borrowedAt ||
+    record.borrowDate ||
+    record.startDate ||
+    record.startAt ||
+    '';
+
+  const dueAt =
+    record.dueAt ||
+    record.dueDate ||
+    record.returnDueDate ||
+    record.expectedReturnDate ||
+    record.endDate ||
+    record.endAt ||
+    '';
+
+  const returnedAt =
+    record.returnedAt ||
+    record.returnDate ||
+    record.returnedDate ||
+    record.actualReturnDate ||
+    '';
 
   const getDays = (startDate, endDate) => {
     if (!startDate || !endDate) return 0;
@@ -184,21 +205,46 @@ const normalizeBorrow = (record) => {
 
     return Math.max(
       0,
-      Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
+      Math.ceil(
+        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+      ),
     );
   };
 
   return {
     ...record,
 
+    // ข้อมูลครุภัณฑ์
     assetId: record.assetId,
-    borrowerName: record.borrowerName || '',
-    location: record.department || '',
-    jobTask: record.purpose || '',
+    assetCode: record.assetCode || record.asset?.assetCode || '',
+    assetName: record.assetName || record.asset?.name || '',
 
-    // แปลง UTC จาก API เป็นเวลาไทยก่อนส่งให้ template เดิม
-    borrowDate: formatThaiDateTime(borrowedAt),
-    dueDate: formatThaiDateTime(returnedAt || dueAt),
+    // ข้อมูลผู้ยืม
+    borrowerName: record.borrowerName || '',
+    location: record.location || record.department || '',
+    department: record.department || record.location || '',
+    purpose: record.purpose || '',
+    jobTask: record.jobTask || record.purpose || '',
+
+    // เก็บข้อมูล raw จาก API
+    borrowedAt,
+    dueAt,
+    returnedAt,
+
+    // ข้อมูลสำหรับแสดงใน BorrowView.vue
+    borrowDate: borrowedAt
+      ? formatThaiDateTime(borrowedAt)
+      : '',
+
+    // วัน/เวลาที่เลือกเป็นกำหนดคืน
+    dueDate: dueAt
+      ? formatThaiDateTime(dueAt)
+      : '',
+
+    // วัน/เวลาที่คืนจริง
+    returnedDate: returnedAt
+      ? formatThaiDateTime(returnedAt)
+      : '',
 
     status: returnedAt ? 'Returned' : 'Active',
 
@@ -236,13 +282,24 @@ const loadData = async () => {
       api.getSupplies(),
     ]);
 
-    categories.value = categoryData.map(normalizeCategory);
-    assets.value = assetData.map(normalizeAsset);
-    supplies.value = supplyData.map(normalizeSupply);
+    categories.value = Array.isArray(categoryData)
+      ? categoryData.map(normalizeCategory)
+      : [];
+
+    assets.value = Array.isArray(assetData)
+      ? assetData.map(normalizeAsset)
+      : [];
+
+    supplies.value = Array.isArray(supplyData)
+      ? supplyData.map(normalizeSupply)
+      : [];
 
     try {
       const borrowData = await api.getBorrows();
-      borrowRecords.value = borrowData.map(normalizeBorrow);
+
+      borrowRecords.value = Array.isArray(borrowData)
+        ? borrowData.map(normalizeBorrow)
+        : [];
     } catch (error) {
       console.warn('Borrow API is not ready:', error.message);
       borrowRecords.value = [];
@@ -250,14 +307,26 @@ const loadData = async () => {
 
     try {
       const transactionData = await api.getSupplyTransactions();
-      supplyTransactions.value = transactionData.map(normalizeSupplyTransaction);
+
+      supplyTransactions.value = Array.isArray(transactionData)
+        ? transactionData.map(normalizeSupplyTransaction)
+        : [];
     } catch (error) {
       console.warn('Supply transaction API is not ready:', error.message);
       supplyTransactions.value = [];
     }
   } catch (error) {
     console.error('Load data failed:', error);
-    loadError.value = error.message || 'ไม่สามารถโหลดข้อมูลจากระบบได้';
+
+    loadError.value =
+      error?.message ||
+      'ไม่สามารถโหลดข้อมูลจากระบบได้';
+
+    categories.value = [];
+    assets.value = [];
+    supplies.value = [];
+    borrowRecords.value = [];
+    supplyTransactions.value = [];
   } finally {
     loading.value = false;
   }
@@ -313,11 +382,6 @@ const logout = async () => {
     alert('ไม่สามารถออกจากระบบได้ กรุณาลองใหม่อีกครั้ง');
   }
 };
-
-onMounted(() => {
-  console.log('Keycloak authenticated:', keycloak.authenticated);
-  console.log('Keycloak token parsed:', keycloak.tokenParsed);
-});
 
 const filteredAssets = computed(() => {
   const keyword = assetSearch.value.trim().toLowerCase();
@@ -617,16 +681,23 @@ const submitBorrow = async () => {
   }
 
   try {
-    await api.createBorrow({
+    // Backend ใช้ชื่อ field borrowedAt และ dueAt
+    const payload = {
       assetId,
       borrowerCid,
       borrowerName,
       location,
       purpose,
-      borrowDate,
-      dueDate,
+
+      // วันที่จาก input type="date" จะเป็น YYYY-MM-DD
+      // เติมเวลาเพื่อให้ backend บันทึกเป็น DateTime ได้ชัดเจน
+      borrowedAt: `${borrowDate}T00:00:00`,
+      dueAt: `${dueDate}T23:59:59`,
+
       note,
-    });
+    };
+
+    await api.createBorrow(payload);
 
     Object.assign(borrowForm, {
       assetId: '',
@@ -1081,6 +1152,17 @@ const suppliesMonthlySummary = computed(() => {
             ระบบยืม–คืนอุปกรณ์
           </button>
 
+
+
+          <button @click="setTab('borrowCalendar')" :class="[
+            'px-3 py-2 rounded-lg text-sm font-medium transition duration-200',
+            currentTab === 'borrowCalendar'
+              ? 'bg-white text-indigo-800 shadow-md'
+              : 'bg-white/10 text-indigo-50 hover:bg-white/20'
+          ]">
+            ปฏิทินการยืม
+          </button>
+
           <!-- Dropdown สำหรับเมนูวัสดุสิ้นเปลือง -->
           <div class="relative">
             <button @click="showSuppliesMenu = !showSuppliesMenu" :class="[
@@ -1153,6 +1235,9 @@ const suppliesMonthlySummary = computed(() => {
 
       <BorrowView v-else-if="currentTab === 'borrow'" :assets="assets" :borrow-records="borrowRecords"
         :clear-all-borrow-logs="clearAllBorrowLogs" @open-borrow-modal="openBorrowModal" @return-asset="returnAsset" />
+
+      <BorrowCalendarView v-else-if="currentTab === 'borrowCalendar'" :assets="assets" :borrow-records="borrowRecords"
+        @return-asset="returnAsset" />
 
       <SuppliesView v-else-if="currentTab === 'supplies'" :supplies="filteredSupplies" :categories="categories"
         :supply-search="supplySearch" :get-category-name="getCategoryName"
