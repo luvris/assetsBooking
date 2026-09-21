@@ -129,13 +129,25 @@ const normalizeAsset = (asset) => ({
 
 const normalizeSupply = (supply) => ({
   ...supply,
+
   id: Number(supply.id),
-  categoryId: supply.categoryId === null || supply.categoryId === undefined
-    ? ''
-    : Number(supply.categoryId),
+
+  itemCode: supply.itemCode ?? supply.item_code ?? '',
+
+  categoryId:
+    supply.categoryId === null || supply.categoryId === undefined
+      ? ''
+      : Number(supply.categoryId),
+
   quantity: Number(supply.quantity || 0),
-  minThreshold: Number(supply.minimumQuantity ?? supply.minThreshold ?? 0),
-  minimumQuantity: Number(supply.minimumQuantity ?? supply.minThreshold ?? 0),
+
+  minThreshold: Number(
+    supply.minimumQuantity ?? supply.minThreshold ?? 0,
+  ),
+
+  minimumQuantity: Number(
+    supply.minimumQuantity ?? supply.minThreshold ?? 0,
+  ),
 });
 
 const formatThaiDateTime = (dateValue) => {
@@ -257,30 +269,144 @@ const normalizeBorrow = (record) => {
   };
 };
 
-const normalizeSupplyTransaction = (transaction) => ({
-  ...transaction,
-  id: Number(transaction.id),
-  supplyId: Number(transaction.supplyId),
-  type: transaction.transactionType || transaction.type,
+const normalizeSupplyTransaction = (transaction) => {
+  return {
+    ...transaction,
 
-  // แปลงวันเวลาไทยให้ถูกต้อง
-  timestamp: transaction.createdAt
-    ? formatThaiDateTime(transaction.createdAt)
-    : transaction.timestamp || null,
+    // DB column: supply_id
+    supplyId: Number(
+      transaction.supplyId ??
+      transaction.supply_id ??
+      0,
+    ),
 
-  workOrderNo: transaction.workOrderNo || '',
-});
+    // DB column: transaction_type
+    // แปลงเป็นตัวพิมพ์ใหญ่ เช่น IN / OUT
+    type: String(
+      transaction.type ??
+      transaction.transactionType ??
+      transaction.transaction_type ??
+      '',
+    )
+      .trim()
+      .toUpperCase(),
+
+    quantity: Number(transaction.quantity ?? 0),
+
+    // DB column: created_at
+    createdAt:
+      transaction.createdAt ??
+      transaction.created_at ??
+      null,
+
+    timestamp:
+      transaction.createdAt || transaction.created_at
+        ? formatThaiDateTime(
+          transaction.createdAt ?? transaction.created_at,
+        )
+        : transaction.timestamp || null,
+
+    // DB column: work_order_no
+    workOrderNo:
+      transaction.workOrderNo ??
+      transaction.work_order_no ??
+      '',
+
+    requesterName:
+      transaction.requesterName ??
+      transaction.requester_name ??
+      '',
+
+    department: transaction.department ?? '',
+
+    note: transaction.note ?? '',
+  };
+};
+
+const applySupplyTotalReceived = () => {
+  const totalInBySupplyId = new Map();
+
+  for (const transaction of supplyTransactions.value) {
+    const supplyId = Number(transaction.supplyId);
+    const quantity = Number(transaction.quantity || 0);
+
+    if (!supplyId || quantity <= 0) {
+      continue;
+    }
+
+    // หลัง normalize แล้ว type จะเป็น IN หรือ OUT
+    if (transaction.type !== 'IN') {
+      continue;
+    }
+
+    totalInBySupplyId.set(
+      supplyId,
+      (totalInBySupplyId.get(supplyId) || 0) + quantity,
+    );
+  }
+
+  supplies.value = supplies.value.map((supply) => {
+    const supplyId = Number(supply.id);
+    const totalIn = totalInBySupplyId.get(supplyId) || 0;
+
+    return {
+      ...supply,
+
+      // ถ้ามีประวัติ IN ให้ใช้ผลรวมของ IN
+      // กรณีไม่มี history ให้ fallback เป็นยอดคงเหลือปัจจุบัน
+      totalReceived: totalIn > 0
+        ? totalIn
+        : Number(supply.quantity || 0),
+    };
+  });
+};
 
 const loadData = async () => {
   loading.value = true;
   loadError.value = '';
 
   try {
-    const [categoryData, assetData, supplyData] = await Promise.all([
+    const [
+      categoryResponse,
+      assetResponse,
+      supplyResponse,
+      borrowResponse,
+      transactionResponse,
+    ] = await Promise.all([
       api.getCategories(),
       api.getAssets(),
       api.getSupplies(),
+
+      api.getBorrows().catch((error) => {
+        console.warn('Borrow API is not ready:', error.message);
+        return [];
+      }),
+
+      api.getSupplyTransactions().catch((error) => {
+        console.warn('Supply transaction API is not ready:', error.message);
+        return [];
+      }),
     ]);
+
+    const categoryData = Array.isArray(categoryResponse)
+      ? categoryResponse
+      : (categoryResponse?.data ?? []);
+
+    const assetData = Array.isArray(assetResponse)
+      ? assetResponse
+      : (assetResponse?.data ?? []);
+
+    const supplyData = Array.isArray(supplyResponse)
+      ? supplyResponse
+      : (supplyResponse?.data ?? []);
+
+    const borrowData = Array.isArray(borrowResponse)
+      ? borrowResponse
+      : (borrowResponse?.data ?? []);
+
+    const transactionData = Array.isArray(transactionResponse)
+      ? transactionResponse
+      : (transactionResponse?.data ?? []);
 
     categories.value = Array.isArray(categoryData)
       ? categoryData.map(normalizeCategory)
@@ -294,27 +420,16 @@ const loadData = async () => {
       ? supplyData.map(normalizeSupply)
       : [];
 
-    try {
-      const borrowData = await api.getBorrows();
+    borrowRecords.value = Array.isArray(borrowData)
+      ? borrowData.map(normalizeBorrow)
+      : [];
 
-      borrowRecords.value = Array.isArray(borrowData)
-        ? borrowData.map(normalizeBorrow)
-        : [];
-    } catch (error) {
-      console.warn('Borrow API is not ready:', error.message);
-      borrowRecords.value = [];
-    }
+    supplyTransactions.value = Array.isArray(transactionData)
+      ? transactionData.map(normalizeSupplyTransaction)
+      : [];
 
-    try {
-      const transactionData = await api.getSupplyTransactions();
-
-      supplyTransactions.value = Array.isArray(transactionData)
-        ? transactionData.map(normalizeSupplyTransaction)
-        : [];
-    } catch (error) {
-      console.warn('Supply transaction API is not ready:', error.message);
-      supplyTransactions.value = [];
-    }
+    // คำนวณยอดรับเข้ารวมทั้งหมดจาก transaction type = IN
+    applySupplyTotalReceived();
   } catch (error) {
     console.error('Load data failed:', error);
 
@@ -331,7 +446,6 @@ const loadData = async () => {
     loading.value = false;
   }
 };
-
 onMounted(loadData);
 
 const stats = computed(() => {
