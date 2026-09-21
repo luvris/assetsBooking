@@ -105,27 +105,41 @@ const dayList = (dateKey) => listOfDate(dateKey).filter(event => matchesFilters(
 const dayCount = (dateKey) => dayList(dateKey).length;
 
 const monthStats = computed(() => {
-  const inMonth = (dateKey) => Boolean(dateKey) && dateKey.startsWith(calendarMonth.value);
+  const inMonth = (dateKey) => (
+    Boolean(dateKey) && dateKey.startsWith(calendarMonth.value)
+  );
 
   let borrowDays = 0;
-  let borrowEvents = 0;
+  let borrowRecords = 0;
   let overdueEvents = 0;
 
-  calendarIndex.value.events.forEach((event) => {
-    if (!matchesAssetFilter(event)) return;
+  // ใช้นับ “วันที่มีรายการยืม” โดยไม่ซ้ำวัน
+  const daysWithBorrow = new Set();
 
-    let matchedThisMonth = false;
+  calendarIndex.value.events.forEach((event) => {
+    if (!matchesAssetFilter(event)) {
+      return;
+    }
+
+    let hasEventInSelectedMonth = false;
 
     event.dayKeys.forEach((dateKey) => {
-      if (!inMonth(dateKey)) return;
-      if (!passesStatusFilter(dateKey, event)) return;
+      if (!inMonth(dateKey)) {
+        return;
+      }
 
-      borrowEvents += 1;
-      matchedThisMonth = true;
+      if (!passesStatusFilter(dateKey, event)) {
+        return;
+      }
+
+      daysWithBorrow.add(dateKey);
+      hasEventInSelectedMonth = true;
     });
 
-    if (matchedThisMonth) {
-      borrowDays += 1;
+    // รายการยืมหนึ่ง record นับครั้งเดียว
+    // ต่อให้มีการยืมหลายวันก็นับเป็น 1
+    if (hasEventInSelectedMonth) {
+      borrowRecords += 1;
     }
 
     if (event.isOverdue && inMonth(event.dueKey)) {
@@ -133,24 +147,54 @@ const monthStats = computed(() => {
     }
   });
 
+  borrowDays = daysWithBorrow.size;
+
   return {
     borrowDays,
-    borrowEvents,
+    borrowEvents: borrowRecords,
     overdueEvents,
     totalRecords: calendarIndex.value.events.length,
   };
 });
 
 const selectedDateEvents = computed(() => {
-  if (!selectedDateKey.value) return [];
+  if (!selectedDateKey.value) {
+    return [];
+  }
 
   return listOfDate(selectedDateKey.value)
-    .filter(event => matchesAssetFilter(event))
-    .map(event => ({
+    .filter((event) => matchesAssetFilter(event))
+    .map((event) => ({
       ...event,
       isPickedUpToday: selectedDateKey.value === event.startKey,
     }))
-    .sort((a, b) => a.borrowerName.localeCompare(b.borrowerName, 'th'));
+    .sort((a, b) => {
+      // เรียงวัน/เวลาที่ยืมล่าสุดขึ้นก่อน
+      const timeA = new Date(
+        a.record?.borrowedAt ||
+        a.record?.borrowDate ||
+        a.startKey ||
+        0,
+      ).getTime();
+
+      const timeB = new Date(
+        b.record?.borrowedAt ||
+        b.record?.borrowDate ||
+        b.startKey ||
+        0,
+      ).getTime();
+
+      // newest first
+      if (timeB !== timeA) {
+        return timeB - timeA;
+      }
+
+      // ถ้าวันเวลาเท่ากัน จึงเรียงชื่อผู้ยืมเพื่อให้ลำดับคงที่
+      return String(a.borrowerName || '').localeCompare(
+        String(b.borrowerName || ''),
+        'th',
+      );
+    });
 });
 
 const selectedDateLabel = computed(() => {
@@ -274,24 +318,25 @@ const clearFilters = () => {
 
     <!-- สรุปเดือน -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+      <!-- <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <p class="text-xs text-slate-500">วันที่มีการยืมในเดือนนี้</p>
         <p class="mt-1 text-2xl font-bold text-slate-900">
           {{ monthStats.borrowDays }} <span class="text-sm font-medium text-slate-500">วัน</span>
         </p>
-      </div>
+      </div> -->
 
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-        <p class="text-xs text-slate-500">รายการยืม (วัน-รายการ)</p>
+        <p class="text-xs text-slate-500">รายการยืมในเดือนนี้</p>
+
         <p class="mt-1 text-2xl font-bold text-slate-900">
-          {{ monthStats.borrowEvents }} <span class="text-sm font-medium text-slate-500">รายการ</span>
+          {{ monthStats.borrowEvents }}
+          <span class="text-sm font-medium text-slate-500">รายการ</span>
         </p>
       </div>
 
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <p class="text-xs text-slate-500">เลยกำหนดคืนในเดือนนี้</p>
-        <p class="mt-1 text-2xl font-bold"
-          :class="monthStats.overdueEvents > 0 ? 'text-rose-600' : 'text-slate-900'">
+        <p class="mt-1 text-2xl font-bold" :class="monthStats.overdueEvents > 0 ? 'text-rose-600' : 'text-slate-900'">
           {{ monthStats.overdueEvents }} <span class="text-sm font-medium text-slate-500">รายการ</span>
         </p>
       </div>
@@ -330,7 +375,8 @@ const clearFilters = () => {
 
         <div class="grid grid-cols-7">
           <template v-for="(cell, cellIndex) in monthCells" :key="cell.dateKey || `blank-${cellIndex}`">
-            <div v-if="!cell.isCurrentMonth" class="min-h-[104px] border-b border-r border-slate-100 bg-slate-50/60"></div>
+            <div v-if="!cell.isCurrentMonth" class="min-h-[104px] border-b border-r border-slate-100 bg-slate-50/60">
+            </div>
 
             <button v-else type="button" @click="selectDate(cell)" :class="[
               'min-h-[104px] w-full border-b border-r border-slate-100 p-2 text-left align-top transition',
@@ -352,8 +398,7 @@ const clearFilters = () => {
 
               <div class="mt-1 space-y-1">
                 <div v-for="event in dayList(cell.dateKey).slice(0, 2)" :key="event.id"
-                  class="truncate rounded px-1.5 py-0.5 text-[10px] font-medium"
-                  :class="event.isOverdue
+                  class="truncate rounded px-1.5 py-0.5 text-[10px] font-medium" :class="event.isOverdue
                     ? 'bg-rose-100 text-rose-700'
                     : event.isReturned
                       ? 'bg-slate-100 text-slate-500'
