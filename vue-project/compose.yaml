@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     container_name: appitsupply-backend
     restart: unless-stopped
+    # ให้ container เชื่อมต่อ MariaDB ที่รันบนเครื่อง host ได้ทั้ง Docker Desktop (Windows/macOS) และ Linux
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - ./backend/.env
     expose:
@@ -15,10 +18,11 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
-        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL}
-        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM}
-        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID}
+        # ค่าทั้ง 4 ตัวต้องมีในไฟล์ vue-project/.env (ดู .env.example) มิฉะนั้นจะ build ไม่ผ่าน
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?VITE_API_BASE_URL is required. Copy .env.example to .env and fill it in}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:?VITE_KEYCLOAK_URL is required. Copy .env.example to .env and fill it in}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:?VITE_KEYCLOAK_REALM is required. Copy .env.example to .env and fill it in}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:?VITE_KEYCLOAK_CLIENT_ID is required. Copy .env.example to .env and fill it in}
     container_name: appitsupply-frontend
     restart: unless-stopped
     depends_on:
@@ -33,3 +37,45 @@ services:
     command: tunnel --no-autoupdate --protocol http2 --url http://frontend:5173
     depends_on:
       - frontend
+
+  # ---------------------------------------------------------------------------
+  # ทางเลือก: MariaDB สำหรับรันทดสอบในเครื่อง โดยไม่ต้องติดตั้ง MariaDB เอง
+  # เปิดใช้ด้วย:  docker compose --profile local-db up -d --build
+  # เมื่อใช้ service นี้ ต้องแก้ backend/.env เป็น
+  #   DB_HOST=db
+  #   DB_PORT=3306
+  #   DB_USER=assets_api
+  #   DB_PASSWORD=<ค่า MARIADB_PASSWORD ด้านล่าง>
+  # schema.sql / seed.sql จะถูก import อัตโนมัติเมื่อสร้าง volume ครั้งแรก
+  # (docker-entrypoint-initdb.d จะทำงานเฉพาะตอน volume ยังว่าง ถ้าต้องการรันใหม่ให้ลบ volume ก่อน:
+  #  docker compose --profile local-db down -v)
+  # ---------------------------------------------------------------------------
+  db:
+    image: mariadb:10.6
+    container_name: appitsupply-db
+    profiles:
+      - local-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-rootpass}
+      MARIADB_DATABASE: assets_booking
+      MARIADB_USER: assets_api
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-devpass}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${DB_PORT:-3309}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  db_data:
