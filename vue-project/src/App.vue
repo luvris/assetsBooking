@@ -5,18 +5,44 @@ import keycloak from './auth/keycloak.js';
 import DashboardView from './components/DashboardView.vue';
 import AssetsView from './components/AssetsView.vue';
 import BorrowView from './components/BorrowView.vue';
+import BorrowPrintView from './components/BorrowPrintView.vue';
 import BorrowCalendarView from './components/BorrowCalendarView.vue';
 import SuppliesView from './components/SuppliesView.vue';
 import CategoriesView from './components/CategoriesView.vue';
 import SuppliesLogView from './components/SuppliesLogView.vue';
 import SuppliesSummaryView from './components/SuppliesSummaryView.vue';
 
+import {
+  dbStatusFromUi,
+  normalizeAsset,
+  normalizeBorrow,
+  normalizeBorrowFormType,
+  uiStatusFromDb,
+} from './utils/inventoryRecords.js';
+
 const currentTab = ref('dashboard');
 const showSuppliesMenu = ref(false);
+const selectedBorrowIdForPrint = ref(null);
 
 const setTab = (tab) => {
   currentTab.value = tab;
   showSuppliesMenu.value = false;
+};
+
+const openBorrowPrint = (borrowId) => {
+  if (!borrowId) {
+    window.alert('ไม่พบรหัสรายการยืมสำหรับพิมพ์เอกสาร');
+    return;
+  }
+
+  selectedBorrowIdForPrint.value = borrowId;
+  currentTab.value = 'borrow-print';
+  showSuppliesMenu.value = false;
+};
+
+const closeBorrowPrint = () => {
+  selectedBorrowIdForPrint.value = null;
+  currentTab.value = 'borrow';
 };
 
 const loading = ref(false);
@@ -69,6 +95,14 @@ const borrowForm = reactive({
   assetId: '',
   borrowerCid: 'TEMP-USER',
   borrowerName: '',
+  department: '',
+
+  // ข้อมูลตามแบบฟอร์มขอยืมครุภัณฑ์คอมพิวเตอร์ (A6-1/A6-2)
+  phone: '',
+  formType: '',
+  outOfAreaNote: '',
+  isHodAcknowledged: false,
+
   location: '',
   purpose: '',
   startDate: '',
@@ -90,41 +124,51 @@ const assetSearch = ref('');
 const assetStatusFilter = ref('');
 const supplySearch = ref('');
 
-const uiStatusFromDb = (status) => {
-  const statusMap = {
-    AVAILABLE: 'Available',
-    BORROWED: 'Borrowed',
-    REPAIR: 'Maintenance',
-    DISPOSED: 'Retired',
-  };
+/**
+ * หาครุภัณฑ์ในทะเบียนจากข้อมูลอ้างอิงในระเบียนยืม
+ * ลำดับ: assetId -> assetCode -> ชื่อครุภัณฑ์
+ */
+const findAssetByReference = (assetList, record) => {
+  const list = Array.isArray(assetList) ? assetList : [];
+  const borrow = record && typeof record === 'object' ? record : {};
+  const asset = borrow.asset || borrow.assetInfo || borrow.asset_info || {};
 
-  return statusMap[status] || status || 'Available';
-};
+  const referencedId = borrow.assetId ?? borrow.asset_id;
+  const referencedCode = borrow.assetCode ?? borrow.asset_code
+    ?? asset.assetCode ?? asset.asset_code;
+  const referencedName = borrow.assetName ?? borrow.asset_name ?? asset.name;
 
-const dbStatusFromUi = (status) => {
-  const statusMap = {
-    Available: 'AVAILABLE',
-    Borrowed: 'BORROWED',
-    Maintenance: 'REPAIR',
-    Retired: 'DISPOSED',
-  };
+  if (referencedId !== null && referencedId !== undefined && referencedId !== '') {
+    const byId = list.find((item) => Number(item.id) === Number(referencedId));
 
-  return statusMap[status] || status || 'AVAILABLE';
+    if (byId) return byId;
+  }
+
+  if (referencedCode) {
+    const byCode = list.find(
+      (item) => String(item.assetCode || '').toLowerCase()
+        === String(referencedCode).trim().toLowerCase(),
+    );
+
+    if (byCode) return byCode;
+  }
+
+  if (referencedName) {
+    const byName = list.find(
+      (item) => String(item.name || '').toLowerCase()
+        === String(referencedName).trim().toLowerCase(),
+    );
+
+    if (byName) return byName;
+  }
+
+  return null;
 };
 
 const normalizeCategory = (category) => ({
   ...category,
   id: Number(category.id),
   type: String(category.type || '').toLowerCase(),
-});
-
-const normalizeAsset = (asset) => ({
-  ...asset,
-  id: Number(asset.id),
-  categoryId: asset.categoryId === null || asset.categoryId === undefined
-    ? ''
-    : Number(asset.categoryId),
-  status: uiStatusFromDb(asset.status),
 });
 
 const normalizeSupply = (supply) => ({
@@ -150,21 +194,14 @@ const normalizeSupply = (supply) => ({
   ),
 });
 
-const formatThaiDateTime = (dateValue) => {
-  if (!dateValue) return '';
+/**
+ * แสดงวันเวลาเป็นรูปแบบไทย (Asia/Bangkok)
+ * ระบุ timeZone ชัดเจนเพื่อไม่ให้เบราว์เซอร์บวกเวลาเพิ่มซ้ำ
+ */
+const formatThaiDateTime = (value) => {
+  if (!value) return '';
 
-  let s = String(dateValue).trim();
-
-  // เวลาในฐานข้อมูล MariaDB ถูกบันทึกเป็นเวลาไทย (Asia/Bangkok) อยู่แล้ว
-  // แต่ serializer ส่ง ISO string ที่มี 'Z' ต่อท้ายมา ทำให้ new Date() เข้าใจผิดว่าเป็นเวลา UTC
-  // เมื่อถูกแปลงด้วย timeZone: 'Asia/Bangkok' จึงกลายเป็นการบวกเวลาซ้ำ +7 ชั่วโมง (เช่น 09:45 กลายเป็น 16:45)
-  if (s.endsWith('Z')) {
-    s = s.slice(0, -1) + '+07:00';
-  } else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
-    s = s.replace(' ', 'T') + '+07:00';
-  }
-
-  const date = new Date(s);
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return '';
@@ -180,97 +217,9 @@ const formatThaiDateTime = (dateValue) => {
   });
 };
 
-const normalizeBorrow = (record) => {
-  // รองรับชื่อ field ที่ API อาจส่งมาแตกต่างกัน
-  const borrowedAt =
-    record.borrowedAt ||
-    record.borrowDate ||
-    record.startDate ||
-    record.startAt ||
-    '';
-
-  const dueAt =
-    record.dueAt ||
-    record.dueDate ||
-    record.returnDueDate ||
-    record.expectedReturnDate ||
-    record.endDate ||
-    record.endAt ||
-    '';
-
-  const returnedAt =
-    record.returnedAt ||
-    record.returnDate ||
-    record.returnedDate ||
-    record.actualReturnDate ||
-    '';
-
-  const getDays = (startDate, endDate) => {
-    if (!startDate || !endDate) return 0;
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return 0;
-    }
-
-    return Math.max(
-      0,
-      Math.ceil(
-        (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-      ),
-    );
-  };
-
-  return {
-    ...record,
-
-    // ข้อมูลครุภัณฑ์
-    assetId: record.assetId,
-    assetCode: record.assetCode || record.asset?.assetCode || '',
-    assetName: record.assetName || record.asset?.name || '',
-
-    // ข้อมูลผู้ยืม
-    borrowerName: record.borrowerName || '',
-    location: record.location || record.department || '',
-    department: record.department || record.location || '',
-    purpose: record.purpose || '',
-    jobTask: record.jobTask || record.purpose || '',
-
-    // เก็บข้อมูล raw จาก API
-    borrowedAt,
-    dueAt,
-    returnedAt,
-
-    // ข้อมูลสำหรับแสดงใน BorrowView.vue
-    borrowDate: borrowedAt
-      ? formatThaiDateTime(borrowedAt)
-      : '',
-
-    // วัน/เวลาที่เลือกเป็นกำหนดคืน
-    dueDate: dueAt
-      ? formatThaiDateTime(dueAt)
-      : '',
-
-    // วัน/เวลาที่คืนจริง
-    returnedDate: returnedAt
-      ? formatThaiDateTime(returnedAt)
-      : '',
-
-    status: returnedAt ? 'Returned' : 'Active',
-
-    totalDays: getDays(borrowedAt, dueAt),
-
-    lateDays:
-      returnedAt && dueAt
-        ? getDays(dueAt, returnedAt)
-        : 0,
-  };
-};
-
 const normalizeSupplyTransaction = (transaction) => {
   return {
+
     ...transaction,
 
     id: Number(transaction.id),
@@ -424,7 +373,16 @@ const loadData = async () => {
       : [];
 
     borrowRecords.value = Array.isArray(borrowData)
-      ? borrowData.map(normalizeBorrow)
+      ? borrowData.map((record) => {
+        // เติมรหัส/ชื่อครุภัณฑ์จากทะเบียนครุภัณฑ์ เมื่อระเบียนยืมไม่ได้ส่งมา
+        const asset = findAssetByReference(assets.value, record);
+
+        return normalizeBorrow(record, {
+          assetId: asset?.id,
+          assetCode: asset?.assetCode,
+          assetName: asset?.name,
+        });
+      })
       : [];
 
     supplyTransactions.value = Array.isArray(transactionData)
@@ -681,21 +639,20 @@ const saveAsset = async () => {
       ? await api.updateAsset(editingAssetId.value, payload)
       : await api.createAsset(payload);
 
-    savedAsset.status = uiStatusFromDb(savedAsset.status);
-
     if (isEditing) {
       const index = assets.value.findIndex(
         (item) => item.id === editingAssetId.value,
       );
 
       if (index !== -1) {
-        assets.value[index] = {
+        assets.value[index] = normalizeAsset({
           ...assets.value[index],
           ...savedAsset,
-        };
+        });
       }
     } else {
-      assets.value.push(savedAsset);
+      // normalize ก่อนเก็บลง state เพื่อให้ทุกจุดที่ใช้งานได้ค่าเดียวกัน
+      assets.value.push(normalizeAsset(savedAsset));
     }
 
     showAssetModal.value = false;
@@ -740,26 +697,58 @@ const deleteAsset = async (assetId) => {
 const openBorrowModal = () => {
   const today = new Date().toISOString().slice(0, 10);
 
-  borrowForm.assetId = '';
-  borrowForm.borrowerCid = 'TEMP-USER';
-  borrowForm.borrowerName = '';
-  borrowForm.department = '';
-  borrowForm.purpose = '';
-  borrowForm.startDate = today;
-  borrowForm.dueDate = '';
+  Object.assign(borrowForm, {
+    assetId: '',
+    borrowerCid: 'TEMP-USER',
+    borrowerName: '',
+    department: '',
+    location: '',
+    purpose: '',
+    phone: '',
+    formType: '',
+    outOfAreaNote: '',
+    isHodAcknowledged: false,
+    startDate: today,
+    dueDate: '',
+    note: '',
+  });
 
   showBorrowModal.value = true;
 };
+
+/** ครุภัณฑ์ที่เลือกไว้ในฟอร์มยืม */
+const selectedBorrowAsset = computed(() => (
+  assets.value.find((item) => Number(item.id) === Number(borrowForm.assetId)) || null
+));
+
+/**
+ * ประเภทใบขอยืม: ผู้ใช้เลือกเองก่อน ถ้าไม่เลือกจึงเดาจากข้อมูลที่กรอก
+ * - OUT_OF_AREA = A6-1 ขอยืมออกนอกพื้นที่โรงพยาบาล
+ * - IN_HOSPITAL = A6-2 ขอยืมใช้ภายในโรงพยาบาล
+ */
+const borrowFormType = computed(() => (
+  borrowForm.formType || normalizeBorrowFormType({
+    purpose: borrowForm.purpose,
+    location: borrowForm.location,
+    outOfAreaNote: borrowForm.outOfAreaNote,
+    phone: borrowForm.phone,
+  })
+));
+
+const isOutOfAreaBorrow = computed(() => borrowFormType.value === 'OUT_OF_AREA');
 
 const submitBorrow = async () => {
   const assetId = Number(borrowForm.assetId);
   const borrowerCid = borrowForm.borrowerCid?.trim() || 'TEMP-USER';
   const borrowerName = borrowForm.borrowerName?.trim();
   const location = borrowForm.location?.trim();
+  const department = (borrowForm.department || location)?.trim();
   const purpose = borrowForm.purpose?.trim();
+  const phone = borrowForm.phone?.trim();
   const borrowDate = borrowForm.startDate;
   const dueDate = borrowForm.dueDate;
   const note = borrowForm.note?.trim() || null;
+  const outOfAreaNote = borrowForm.outOfAreaNote?.trim();
 
   const missingFields = [];
 
@@ -803,7 +792,8 @@ const submitBorrow = async () => {
       assetId,
       borrowerCid,
       borrowerName,
-      location,
+      department,
+      location: location || department,
       purpose,
 
       // วันที่จาก input type="date" จะเป็น YYYY-MM-DD
@@ -812,6 +802,18 @@ const submitBorrow = async () => {
       dueAt: `${dueDate}T23:59:59`,
 
       note,
+
+      // ข้อมูลตามแบบฟอร์มขอยืมครุภัณฑ์คอมพิวเตอร์ (A6-1/A6-2)
+      formType: borrowFormType.value,
+      phone: phone || null,
+      outOfAreaNote: borrowFormType.value === 'OUT_OF_AREA'
+        ? (outOfAreaNote || null)
+        : null,
+      isHodAcknowledged: Boolean(borrowForm.isHodAcknowledged),
+
+      // รหัส/ชื่อครุภัณฑ์จากทะเบียน เพื่อให้ระเบียนยืมแสดงผลได้ทันที
+      assetCode: selectedBorrowAsset.value?.assetCode || null,
+      assetName: selectedBorrowAsset.value?.name || null,
     };
 
     await api.createBorrow(payload);
@@ -820,8 +822,13 @@ const submitBorrow = async () => {
       assetId: '',
       borrowerCid: 'TEMP-USER',
       borrowerName: '',
+      department: '',
       location: '',
       purpose: '',
+      phone: '',
+      formType: '',
+      outOfAreaNote: '',
+      isHodAcknowledged: false,
       startDate: '',
       dueDate: '',
       note: '',
@@ -899,6 +906,9 @@ const saveSupply = async () => {
       ? await api.updateSupply(editingSupplyId.value, payload)
       : await api.createSupply(payload);
 
+    // normalize ก่อนเก็บลง state เพื่อให้ทุกจุดที่ใช้งานได้ค่าเดียวกัน
+    const savedSupplyRecord = normalizeSupply(savedSupply);
+
     if (isEditing) {
       const index = supplies.value.findIndex(
         (item) => item.id === editingSupplyId.value,
@@ -907,11 +917,11 @@ const saveSupply = async () => {
       if (index !== -1) {
         supplies.value[index] = {
           ...supplies.value[index],
-          ...savedSupply,
+          ...savedSupplyRecord,
         };
       }
     } else {
-      supplies.value.push(savedSupply);
+      supplies.value.push(savedSupplyRecord);
     }
 
     showSupplyModal.value = false;
@@ -1294,6 +1304,9 @@ const suppliesMonthlySummary = computed(() => {
     months: summary.map((item) => item.month),
     summary,
   };
+
+
+
 });
 </script>
 
@@ -1422,7 +1435,11 @@ const suppliesMonthlySummary = computed(() => {
         @delete-asset="deleteAsset" />
 
       <BorrowView v-else-if="currentTab === 'borrow'" :assets="assets" :borrow-records="borrowRecords"
-        :clear-all-borrow-logs="clearAllBorrowLogs" @open-borrow-modal="openBorrowModal" @return-asset="returnAsset" />
+        :clear-all-borrow-logs="clearAllBorrowLogs" @open-borrow-modal="openBorrowModal" @return-asset="returnAsset"
+        @print-borrow="openBorrowPrint" />
+
+      <BorrowPrintView v-else-if="currentTab === 'borrow-print'" :borrow-id="selectedBorrowIdForPrint"
+        @back="closeBorrowPrint" />
 
       <BorrowCalendarView v-else-if="currentTab === 'borrowCalendar'" :assets="assets" :borrow-records="borrowRecords"
         @return-asset="returnAsset" />
@@ -1561,6 +1578,51 @@ const suppliesMonthlySummary = computed(() => {
             <input v-model="borrowForm.borrowerName" type="text"
               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="เช่น นายสมชาย ใจดี" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              หน่วยงาน/แผนกของผู้ยืม
+            </label>
+            <input v-model="borrowForm.department" type="text"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น งานคอมพิวเตอร์ ฝ่ายบริหาร" />
+          </div>
+
+          <!-- <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              เบอร์โทรติดต่อกลับ
+            </label>
+            <input v-model="borrowForm.phone" type="tel"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น 081-234-5678" />
+          </div> -->
+
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              ประเภทใบขอยืม
+            </label>
+            <select v-model="borrowForm.formType"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="">เลือกรูปแบบการยืม</option>
+              <option value="IN_HOSPITAL">A6-2 ยืมใช้ภายในโรงพยาบาล</option>
+              <option value="OUT_OF_AREA">A6-1 ยืมออกนอกพื้นที่โรงพยาบาล</option>
+            </select>
+          </div>
+
+          <div v-if="isOutOfAreaBorrow">
+            <label class="block text-xs font-medium text-slate-600 mb-1">
+              รายละเอียดการใช้งานคอมพิวเตอร์นอกพื้นที่
+            </label>
+            <textarea v-model="borrowForm.outOfAreaNote" rows="2"
+              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น ออกหน่วยตรวจสุขภาพเคลื่อนที่ ณ อบต.สันทราย"></textarea>
+
+            <label class="flex items-center gap-2 mt-2 text-xs text-slate-600">
+              <input v-model="borrowForm.isHodAcknowledged" type="checkbox"
+                class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              หัวหน้างานรับทราบการยืมออกนอกพื้นที่แล้ว
+            </label>
           </div>
 
           <div>
