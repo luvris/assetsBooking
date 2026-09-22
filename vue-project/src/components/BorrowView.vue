@@ -61,7 +61,7 @@ const openPrintForm = (record) => {
     return;
   }
 
-  emit('print-borrow', record.id);
+  emit('print-borrow', record);
 };
 </script>
 

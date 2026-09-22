@@ -22,26 +22,26 @@ import {
 
 const currentTab = ref('dashboard');
 const showSuppliesMenu = ref(false);
-const selectedBorrowIdForPrint = ref(null);
+const selectedBorrowForPrint = ref(null);
 
 const setTab = (tab) => {
   currentTab.value = tab;
   showSuppliesMenu.value = false;
 };
 
-const openBorrowPrint = (borrowId) => {
-  if (!borrowId) {
-    window.alert('ไม่พบรหัสรายการยืมสำหรับพิมพ์เอกสาร');
+const openBorrowPrint = (borrowRecord) => {
+  if (!borrowRecord?.id) {
+    window.alert('ไม่พบข้อมูลรายการยืมสำหรับพิมพ์เอกสาร');
     return;
   }
 
-  selectedBorrowIdForPrint.value = borrowId;
+  selectedBorrowForPrint.value = borrowRecord;
   currentTab.value = 'borrow-print';
   showSuppliesMenu.value = false;
 };
 
 const closeBorrowPrint = () => {
-  selectedBorrowIdForPrint.value = null;
+  selectedBorrowForPrint.value = null;
   currentTab.value = 'borrow';
 };
 
@@ -1438,8 +1438,8 @@ const suppliesMonthlySummary = computed(() => {
         :clear-all-borrow-logs="clearAllBorrowLogs" @open-borrow-modal="openBorrowModal" @return-asset="returnAsset"
         @print-borrow="openBorrowPrint" />
 
-      <BorrowPrintView v-else-if="currentTab === 'borrow-print'" :borrow-id="selectedBorrowIdForPrint"
-        @back="closeBorrowPrint" />
+      <BorrowPrintView v-else-if="currentTab === 'borrow-print'" :borrow-record="selectedBorrowForPrint"
+        :assets="assets" @back="closeBorrowPrint" />
 
       <BorrowCalendarView v-else-if="currentTab === 'borrowCalendar'" :assets="assets" :borrow-records="borrowRecords"
         @return-asset="returnAsset" />
@@ -1551,132 +1551,210 @@ const suppliesMonthlySummary = computed(() => {
 
     <!-- Borrow Modal -->
     <div v-if="showBorrowModal"
-      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
-        <h3 class="text-xl font-bold text-slate-800">
-          บันทึกการยืมอุปกรณ์
-        </h3>
-
-        <div class="space-y-3">
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+      <div class="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div class="flex items-center justify-between gap-4">
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
+            <h3 class="text-xl font-bold text-slate-800">
+              บันทึกการยืมอุปกรณ์
+            </h3>
+
+            <p class="mt-1 text-sm text-slate-500">
+              กรอกข้อมูลเพื่อสร้างรายการยืมและใบแบบฟอร์ม A6-1/A6-2
+            </p>
+          </div>
+
+          <button type="button" class="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="ปิดหน้าต่าง" @click="showBorrowModal = false">
+            ✕
+          </button>
+        </div>
+
+        <!-- ฟอร์มหลัก -->
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <!-- อุปกรณ์ -->
+          <div class="sm:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
               เลือกอุปกรณ์ที่พร้อมให้ยืม
+              <span class="text-rose-500">*</span>
             </label>
+
             <select v-model="borrowForm.assetId"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option disabled value="">-- เลือกอุปกรณ์ --</option>
-              <option v-for="item in assets.filter(a => a.status === 'Available')" :key="item.id" :value="item.id">
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option disabled value="">
+                -- เลือกอุปกรณ์ --
+              </option>
+
+              <option v-for="item in assets.filter((asset) => asset.status === 'Available')" :key="item.id"
+                :value="item.id">
                 {{ item.assetCode }} - {{ item.name }}
               </option>
             </select>
           </div>
 
+          <!-- จำนวน -->
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
-              ชื่อผู้ยืม
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              จำนวน
+              <span class="text-rose-500">*</span>
             </label>
-            <input v-model="borrowForm.borrowerName" type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น นายสมชาย ใจดี" />
+
+            <input v-model.number="borrowForm.quantity" type="number" min="1"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
           </div>
 
+          <!-- ประเภทแบบฟอร์ม -->
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
-              หน่วยงาน/แผนกของผู้ยืม
-            </label>
-            <input v-model="borrowForm.department" type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น งานคอมพิวเตอร์ ฝ่ายบริหาร" />
-          </div>
-
-          <!-- <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
-              เบอร์โทรติดต่อกลับ
-            </label>
-            <input v-model="borrowForm.phone" type="tel"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น 081-234-5678" />
-          </div> -->
-
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
               ประเภทใบขอยืม
+              <span class="text-rose-500">*</span>
             </label>
+
             <select v-model="borrowForm.formType"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="">เลือกรูปแบบการยืม</option>
-              <option value="IN_HOSPITAL">A6-2 ยืมใช้ภายในโรงพยาบาล</option>
-              <option value="OUT_OF_AREA">A6-1 ยืมออกนอกพื้นที่โรงพยาบาล</option>
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="IN_HOSPITAL">
+                A6-2: ยืมภายในโรงพยาบาล
+              </option>
+
+              <option value="OUT_OF_AREA">
+                A6-1: ยืมออกนอกพื้นที่
+              </option>
             </select>
           </div>
 
-          <div v-if="isOutOfAreaBorrow">
-            <label class="block text-xs font-medium text-slate-600 mb-1">
-              รายละเอียดการใช้งานคอมพิวเตอร์นอกพื้นที่
+          <!-- ชื่อผู้ยืม -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              ชื่อผู้ยืม
+              <span class="text-rose-500">*</span>
             </label>
-            <textarea v-model="borrowForm.outOfAreaNote" rows="2"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น ออกหน่วยตรวจสุขภาพเคลื่อนที่ ณ อบต.สันทราย"></textarea>
 
-            <label class="flex items-center gap-2 mt-2 text-xs text-slate-600">
-              <input v-model="borrowForm.isHodAcknowledged" type="checkbox"
-                class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-              หัวหน้างานรับทราบการยืมออกนอกพื้นที่แล้ว
-            </label>
+            <input v-model="borrowForm.borrowerName" type="text"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น นายสมชาย ใจดี">
           </div>
 
+          <!-- เบอร์โทร -->
           <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              เบอร์โทรติดต่อกลับ
+            </label>
+
+            <input v-model="borrowForm.borrowerPhone" type="tel"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น 081-234-5678">
+          </div>
+
+          <!-- ตำแหน่ง -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              ตำแหน่ง
+            </label>
+
+            <input v-model="borrowForm.borrowerPosition" type="text"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น นักวิชาการคอมพิวเตอร์">
+          </div>
+
+          <!-- หน่วยงาน -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              หน่วยงาน/แผนก
+            </label>
+
+            <input v-model="borrowForm.department" type="text"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น กลุ่มงานดิจิทัลการแพทย์">
+          </div>
+
+          <!-- เหตุผล/งาน -->
+          <div class="sm:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
               งาน/โครงการที่ใช้
+              <span class="text-rose-500">*</span>
             </label>
+
             <input v-model="borrowForm.purpose" type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น ติดตั้งระบบเครือข่ายหอผู้ป่วย" />
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น ติดตั้งระบบเครือข่ายหอผู้ป่วย">
           </div>
 
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
+          <!-- สถานที่ -->
+          <div class="sm:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
               สถานที่ใช้งาน / สถานที่ยืม
+              <span class="text-rose-500">*</span>
             </label>
+
             <input v-model="borrowForm.location" type="text"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น ห้องตรวจ 3, อาคาร OPD ชั้น 2" />
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="เช่น ห้องตรวจ 3, อาคาร OPD ชั้น 2">
           </div>
 
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">
-                วันที่เริ่มยืม
-              </label>
-              <input v-model="borrowForm.startDate" type="date"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">
-                วันที่กำหนดคืน
-              </label>
-              <input v-model="borrowForm.dueDate" type="date"
-                class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-medium text-slate-600 mb-1">
-              หมายเหตุ (ถ้ามี)
+          <!-- A6-1 เฉพาะยืมออกนอกพื้นที่ -->
+          <div v-if="isOutOfAreaBorrow" class="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-amber-900">
+              รายละเอียดการนำออกนอกพื้นที่
+              <span class="text-rose-500">*</span>
             </label>
-            <textarea v-model="borrowForm.notes" rows="2"
-              class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="รายละเอียดเพิ่มเติม..."></textarea>
+
+            <textarea v-model="borrowForm.outOfAreaNote" rows="2"
+              class="w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              placeholder="เช่น ศูนย์ประชุมจังหวัดเชียงใหม่" />
+
+            <label class="mt-2 flex items-center gap-2 text-xs text-amber-900">
+              <input v-model="borrowForm.isHodAcknowledged" type="checkbox"
+                class="rounded border-amber-300 text-indigo-600 focus:ring-indigo-500">
+              หัวหน้าหน่วยงานรับทราบ
+            </label>
+          </div>
+
+          <!-- วันที่เริ่มยืม -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              วันที่เริ่มยืม
+              <span class="text-rose-500">*</span>
+            </label>
+
+            <input v-model="borrowForm.startDate" type="date"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+
+          <!-- วันที่กำหนดคืน -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              วันที่กำหนดคืน
+              <span class="text-rose-500">*</span>
+            </label>
+
+            <input v-model="borrowForm.dueDate" type="date"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+
+          <!-- หมายเหตุ -->
+          <div class="sm:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-slate-600">
+              หมายเหตุ
+              <span class="text-slate-400">(ถ้ามี)</span>
+            </label>
+
+            <textarea v-model="borrowForm.note" rows="2"
+              class="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="รายละเอียดเพิ่มเติม..." />
           </div>
         </div>
 
-        <div class="flex justify-end space-x-2 pt-2">
-          <button @click="showBorrowModal = false"
-            class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200">
+        <!-- ปุ่มดำเนินการ -->
+        <div class="flex justify-end gap-2 border-t border-slate-100 pt-4">
+          <button type="button"
+            class="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+            @click="showBorrowModal = false">
             ยกเลิก
           </button>
-          <button @click="submitBorrow"
-            class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
+
+          <button type="button"
+            class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700"
+            @click="submitBorrow">
             บันทึกการยืม
           </button>
         </div>
