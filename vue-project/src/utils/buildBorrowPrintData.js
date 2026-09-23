@@ -8,6 +8,8 @@ const blank = (value, fallback = '-') => {
     return String(value).trim() || fallback;
 };
 
+const cleanText = (value) => String(value ?? '').trim();
+
 const formatThaiDate = (value) => {
     if (!value) return '........................................';
 
@@ -26,27 +28,64 @@ const formatThaiDate = (value) => {
 };
 
 const normalizeAssetList = (assetInput) => {
-    const assets = Array.isArray(assetInput) ? assetInput : [assetInput];
+    const assets = Array.isArray(assetInput)
+        ? assetInput
+        : [assetInput];
 
     return assets
         .filter(Boolean)
-        .map((assetInputItem) => {
-            const asset = normalizeAsset(assetInputItem);
+.map((assetInputItem) => {
+  const asset = normalizeAsset(assetInputItem);
 
-            return {
-                id: asset.id,
-                assetCode: blank(asset.assetCode),
-                assetName: blank(asset.name),
-                brand: blank(asset.brand),
-                model: blank(asset.model),
-                brandModel: [asset.brand, asset.model]
-                    .filter(Boolean)
-                    .join(' / ') || '-',
-                serialNumber: blank(asset.serialNumber),
-                quantity: asset.quantity || 1,
-                unit: asset.unit || 'เครื่อง',
-            };
-        });
+  const assetName = cleanText(
+    asset.name
+    || asset.assetName
+    || asset.asset_name
+    || assetInputItem.name
+    || assetInputItem.assetName
+    || assetInputItem.asset_name,
+  );
+
+  const brand = cleanText(
+    asset.brand
+    || assetInputItem.brand,
+  );
+
+  const model = cleanText(
+    asset.model
+    || assetInputItem.model,
+  );
+
+  return {
+    id: asset.id,
+
+    assetCode: blank(
+      asset.assetCode
+      || asset.asset_code
+      || assetInputItem.assetCode
+      || assetInputItem.asset_code,
+    ),
+
+    assetName: assetName || '-',
+    brand,
+    model,
+
+    // ต้องการแสดง: ชื่ออุปกรณ์ / ยี่ห้อ
+    brandModel: [assetName, brand]
+      .filter(Boolean)
+      .join(' / ') || '-',
+
+    serialNumber: blank(
+      asset.serialNumber
+      || asset.serial_number
+      || assetInputItem.serialNumber
+      || assetInputItem.serial_number,
+    ),
+
+    quantity: asset.quantity || assetInputItem.quantity || 1,
+    unit: asset.unit || assetInputItem.unit || 'เครื่อง',
+  };
+});
 };
 
 export const buildBorrowPrintData = (borrowInput, assetInput) => {
@@ -68,6 +107,7 @@ export const buildBorrowPrintData = (borrowInput, assetInput) => {
 
         borrowerName: blank(borrow.borrowerName),
         borrowerCid: blank(borrow.borrowerCid),
+
         phone: blank(
             raw.borrower_phone
             || raw.borrowerPhone
@@ -76,12 +116,14 @@ export const buildBorrowPrintData = (borrowInput, assetInput) => {
             || borrow.borrowerPhone
             || borrow.phone,
         ),
+
         department: blank(borrow.department),
 
         position: blank(
             raw.position
             || raw.borrowerPosition
-            || raw.borrower_position,
+            || raw.borrower_position
+            || borrow.borrowerPosition,
         ),
 
         purpose: blank(borrow.purpose || borrow.jobTask),
@@ -90,6 +132,7 @@ export const buildBorrowPrintData = (borrowInput, assetInput) => {
 
         borrowedAt: borrow.borrowedAt,
         dueAt: borrow.dueAt,
+
         borrowedDateText: formatThaiDate(borrow.borrowedAt),
         dueDateText: formatThaiDate(borrow.dueAt),
 

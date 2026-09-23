@@ -186,7 +186,7 @@ const rows = computed(() => {
                         </td>
 
                         <td class="h-[9mm] break-words border border-black px-[2mm] py-[1.5mm] align-middle">
-                            {{ asset ? [asset.brand, asset.model].filter(Boolean).join(' / ') : '' }}
+                            {{ asset?.brandModel || '' }}
                         </td>
 
                         <td class="h-[9mm] border border-black px-[2mm] py-[1.5mm] text-center align-middle">
