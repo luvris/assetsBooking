@@ -10,8 +10,10 @@ body,
 /* พื้นหลัง webapp สีเทาอ่อนทั้งหน้า */
 body {
   margin: 0;
-  background-color: #f8fafc; /* bg-slate-50 */
-  color: #0f172a;            /* text-slate-900 */
+  background-color: #f8fafc;
+  /* bg-slate-50 */
+  color: #0f172a;
+  /* text-slate-900 */
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -26,40 +28,57 @@ body {
 }
 
 @media print {
+
   html,
-  body {
-    width: 210mm;
-    height: 297mm;
+  body,
+  #app {
+    width: 210mm !important;
+    height: auto !important;
+    min-height: 297mm !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
   }
 
-  body * {
-    visibility: hidden;
+  /* ซ่อน navbar ทุก header ของ webapp */
+  #app header {
+    display: none !important;
   }
 
-  .print-a4-page,
-  .print-a4-page * {
-    visibility: visible;
-  }
-
-  .print-a4-page {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 210mm;
-    min-height: 297mm;
+  /* ล้าง layout ของ main webapp */
+  #app main {
+    width: 210mm !important;
+    min-height: 297mm !important;
     margin: 0 !important;
-    box-shadow: none !important;
+    padding: 0 !important;
+    background: #ffffff !important;
   }
 
+  /* เอา toolbar ออก */
   .no-print {
     display: none !important;
   }
 
+  /* ล้างพื้นหลังและ padding ของหน้า Preview */
+  .print-page-root {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  /* แสดงแบบฟอร์มอย่างเดียว */
+  #borrow-print-document {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
   * {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 }

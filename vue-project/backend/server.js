@@ -930,26 +930,39 @@ app.get('/api/borrows', async (req, res) => {
         br.asset_id AS assetId,
         a.asset_code AS assetCode,
         a.name AS assetName,
+
+        br.quantity,
+
         br.borrower_cid AS borrowerCid,
         br.borrower_name AS borrowerName,
+        br.borrower_phone AS borrowerPhone,
+        br.borrower_position AS borrowerPosition,
+
         br.department,
         br.purpose,
+        br.use_location AS useLocation,
+
+        br.form_type AS formType,
+        br.out_of_area_note AS outOfAreaNote,
+
         br.borrowed_at AS borrowedAt,
         br.due_at AS dueAt,
         br.returned_at AS returnedAt,
+
         br.received_by_cid AS receivedByCid,
         br.return_note AS returnNote,
         br.created_at AS createdAt
       FROM borrow_return AS br
       INNER JOIN inventory_assets AS a
         ON a.id = br.asset_id
-      ORDER BY br.borrowed_at DESC
+      ORDER BY br.borrowed_at DESC, br.id DESC
     `);
 
     res.json(rows.map((row) => ({
       ...row,
       id: Number(row.id),
       assetId: Number(row.assetId),
+      quantity: Number(row.quantity || 1),
     })));
   } catch (error) {
     console.error('Get borrows failed:', error.message);
@@ -963,12 +976,62 @@ app.get('/api/borrows', async (req, res) => {
 });
 
 app.post('/api/borrows', async (req, res) => {
+  console.log('POST /api/borrows body:', req.body);
   const assetId = Number(req.body.assetId);
+
   const borrowerCid = String(req.body.borrowerCid || '').trim();
   const borrowerName = String(req.body.borrowerName || '').trim();
+
+
+  const borrowerPhone = String(
+    req.body.borrowerPhone
+    ?? req.body.borrower_phone
+    ?? req.body.phone
+    ?? '',
+  ).trim() || null;
+
+  console.log('borrowerPhone to save:', borrowerPhone);
+
+  const borrowerPosition = String(
+    req.body.borrowerPosition
+    ?? req.body.borrower_position
+    ?? req.body.position
+    ?? '',
+  ).trim() || null;
+
   const department = String(req.body.department || '').trim() || null;
   const purpose = String(req.body.purpose || '').trim() || null;
-  const dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
+
+  const useLocation = String(
+    req.body.useLocation
+    ?? req.body.use_location
+    ?? req.body.location
+    ?? '',
+  ).trim() || null;
+
+  const formType = String(
+    req.body.formType
+    ?? req.body.form_type
+    ?? 'IN_HOSPITAL',
+  ).trim() || 'IN_HOSPITAL';
+
+  const outOfAreaNote = String(
+    req.body.outOfAreaNote
+    ?? req.body.out_of_area_note
+    ?? '',
+  ).trim() || null;
+
+  const borrowedAt = req.body.borrowedAt
+    ? new Date(req.body.borrowedAt)
+    : new Date();
+
+  const dueAt = req.body.dueAt
+    ? new Date(req.body.dueAt)
+    : null;
+
+  const quantity = Number(req.body.quantity || 1);
+
+  const note = String(req.body.note || '').trim() || null;
 
   if (!Number.isInteger(assetId) || assetId <= 0) {
     return res.status(400).json({
@@ -988,9 +1051,27 @@ app.post('/api/borrows', async (req, res) => {
     });
   }
 
+  if (Number.isNaN(borrowedAt.getTime())) {
+    return res.status(400).json({
+      message: 'วันที่ยืมไม่ถูกต้อง',
+    });
+  }
+
   if (dueAt && Number.isNaN(dueAt.getTime())) {
     return res.status(400).json({
       message: 'วันครบกำหนดคืนไม่ถูกต้อง',
+    });
+  }
+
+  if (dueAt && dueAt < borrowedAt) {
+    return res.status(400).json({
+      message: 'วันครบกำหนดคืนต้องไม่ก่อนวันที่ยืม',
+    });
+  }
+
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    return res.status(400).json({
+      message: 'จำนวนที่ยืมต้องเป็นตัวเลขมากกว่า 0',
     });
   }
 
@@ -1030,24 +1111,26 @@ app.post('/api/borrows', async (req, res) => {
       });
     }
 
-    const insertResult = await conn.query(
-      `INSERT INTO borrow_return (
-        asset_id,
-        borrower_cid,
-        borrower_name,
-        department,
-        purpose,
-        due_at
-      ) VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        assetId,
-        borrowerCid,
-        borrowerName,
-        department,
-        purpose,
-        dueAt,
-      ],
-    );
+const insertResult = await conn.query(
+  `INSERT INTO borrow_return (
+    asset_id,
+    borrower_cid,
+    borrower_name,
+    borrower_phone,
+    department,
+    purpose,
+    due_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  [
+    assetId,
+    borrowerCid,
+    borrowerName,
+    borrowerPhone,
+    department,
+    purpose,
+    dueAt,
+  ],
+);
 
     await conn.query(
       `UPDATE inventory_assets
@@ -1061,14 +1144,30 @@ app.post('/api/borrows', async (req, res) => {
 
     res.status(201).json({
       id: Number(insertResult.insertId),
+
       assetId,
       assetCode: asset.asset_code,
       assetName: asset.name,
+
+      quantity,
+
       borrowerCid,
       borrowerName,
+      borrowerPhone,
+      borrowerPosition,
+
       department,
       purpose,
+      useLocation,
+
+      formType,
+      outOfAreaNote,
+
+      borrowedAt,
       dueAt,
+
+      note,
+
       status: 'BORROWED',
       message: 'บันทึกการยืมครุภัณฑ์สำเร็จ',
     });

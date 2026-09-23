@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, nextTick } from 'vue';
 
 import {
   normalizeAsset,
@@ -68,7 +68,7 @@ const asset = computed(() => (
  */
 const printData = computed(() => (
   buildBorrowPrintData(
-    borrow.value,
+    props.borrowRecord,
     asset.value
       ? [{
         ...asset.value,
@@ -79,8 +79,88 @@ const printData = computed(() => (
   )
 ));
 
-const printForm = () => {
-  window.print();
+const printForm = async () => {
+  await nextTick();
+
+  const documentElement = document.getElementById('borrow-print-document');
+
+  if (!documentElement) {
+    window.alert('ไม่พบเนื้อหาเอกสารสำหรับพิมพ์');
+    return;
+  }
+
+  const printWindow = window.open('', '_blank', 'width=900,height=1000');
+
+  if (!printWindow) {
+    window.alert(
+      'ไม่สามารถเปิดหน้าต่างพิมพ์ได้ กรุณาอนุญาต Pop-up สำหรับเว็บไซต์นี้',
+    );
+    return;
+  }
+
+  const styles = Array.from(
+    document.querySelectorAll('link[rel="stylesheet"], style'),
+  )
+    .map((styleElement) => styleElement.outerHTML)
+    .join('\n');
+
+  const documentHtml = documentElement.outerHTML;
+
+  printWindow.document.open();
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html lang="th">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>แบบฟอร์มขอยืมครุภัณฑ์ A6-2</title>
+
+        ${styles}
+
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+
+          html,
+          body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+          }
+
+          #borrow-print-document {
+            box-sizing: border-box;
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0;
+            padding: 10mm 12mm;
+            background: #ffffff;
+          }
+
+          * {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        </style>
+      </head>
+
+      <body>
+        ${documentHtml}
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+
+  printWindow.focus();
+
+  // รอให้ HTML/CSS ใน popup render ก่อน แล้วเปิด print dialog
+  window.setTimeout(() => {
+    printWindow.print();
+  }, 500);
 };
 
 const goBack = () => {
@@ -89,7 +169,7 @@ const goBack = () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-slate-200 py-6">
+  <main class="print-page-root min-h-screen bg-slate-200 py-6">
     <!-- ปุ่ม toolbar: เห็นใน browser แต่ไม่ติดใน PDF -->
     <div class="no-print mx-auto mb-4 flex w-[210mm] items-center justify-between">
       <button type="button"

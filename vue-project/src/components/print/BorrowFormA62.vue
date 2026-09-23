@@ -20,21 +20,15 @@ const rows = computed(() => {
         (_, index) => assetList[index] || null,
     );
 });
-
-const purposeText = computed(() => (
-    String(props.data.purpose || '').toLowerCase()
-));
-
-const isPurpose = (word) => purposeText.value.includes(word);
 </script>
 
 <template>
-    <article
-        class="mx-auto min-h-[297mm] w-[210mm] bg-white px-[12mm] py-[10mm] font-sans text-[16px] leading-[1.25] text-black print:m-0 print:min-h-[297mm] print:w-[210mm] print:px-[12mm] print:py-[10mm]">
+    <article id="borrow-print-document"
+        class="print-a4-page print-document mx-auto min-h-[297mm] w-[210mm] bg-white px-[12mm] py-[10mm] font-sans text-[16px] leading-[1.25] text-black print:m-0 print:min-h-[297mm] print:w-[210mm] print:px-[12mm] print:py-[10mm]">
         <!-- รหัสฟอร์ม -->
-        <div class="mb-[2mm] flex justify-end text-[14px] font-bold">
+        <!-- <div class="mb-[2mm] flex justify-end text-[14px] font-bold">
             [A6-2]
-        </div>
+        </div> -->
 
         <!-- หัวเอกสาร -->
         <header class="mb-[4mm] grid grid-cols-[20mm_1fr_20mm] items-center gap-[3mm]">
@@ -93,7 +87,7 @@ const isPurpose = (word) => purposeText.value.includes(word);
 
                     <span>โทรศัพท์</span>
                     <span class="w-[30mm] border-b border-dotted border-black px-[1mm] pb-[0.5mm] break-words">
-                        {{ data.phone }}
+                        {{ data.phone || '-' }}
                     </span>
                 </div>
 
@@ -103,41 +97,25 @@ const isPurpose = (word) => purposeText.value.includes(word);
                     <div class="mb-[2mm] flex flex-wrap gap-x-[7mm] gap-y-[2mm]">
                         <label class="inline-flex items-center gap-[1.5mm] whitespace-nowrap">
                             <span
-                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold">
-                                {{ isPurpose('ประชุม') || isPurpose('อบรม') ? '✓' : '' }}
-                            </span>
+                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold" />
                             ประชุมสัมมนา/อบรม
                         </label>
 
                         <label class="inline-flex items-center gap-[1.5mm] whitespace-nowrap">
                             <span
-                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold">
-                                {{ isPurpose('วิทยากร') ? '✓' : '' }}
-                            </span>
+                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold" />
                             วิทยากร
                         </label>
 
                         <label class="inline-flex items-center gap-[1.5mm] whitespace-nowrap">
                             <span
-                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold">
-                                {{ isPurpose('ชั่วคราว') ? '✓' : '' }}
-                            </span>
+                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold" />
                             ใช้งานชั่วคราว
                         </label>
 
                         <label class="inline-flex items-center gap-[1.5mm] whitespace-nowrap">
                             <span
-                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold">
-                                {{
-                                    purposeText
-                                        && !isPurpose('ประชุม')
-                                        && !isPurpose('อบรม')
-                                        && !isPurpose('วิทยากร')
-                                        && !isPurpose('ชั่วคราว')
-                                ? '✓'
-                                : ''
-                                }}
-                            </span>
+                                class="grid h-[4mm] w-[4mm] place-items-center border border-black text-[12px] font-bold" />
                             อื่น ๆ
                         </label>
                     </div>

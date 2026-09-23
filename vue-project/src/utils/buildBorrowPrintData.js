@@ -68,7 +68,14 @@ export const buildBorrowPrintData = (borrowInput, assetInput) => {
 
         borrowerName: blank(borrow.borrowerName),
         borrowerCid: blank(borrow.borrowerCid),
-        phone: blank(borrow.phone),
+        phone: blank(
+            raw.borrower_phone
+            || raw.borrowerPhone
+            || raw.borrowerphone
+            || raw.phone
+            || borrow.borrowerPhone
+            || borrow.phone,
+        ),
         department: blank(borrow.department),
 
         position: blank(

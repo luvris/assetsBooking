@@ -98,7 +98,7 @@ const borrowForm = reactive({
   department: '',
 
   // ข้อมูลตามแบบฟอร์มขอยืมครุภัณฑ์คอมพิวเตอร์ (A6-1/A6-2)
-  phone: '',
+  borrowerPhone: '',
   formType: '',
   outOfAreaNote: '',
   isHodAcknowledged: false,
@@ -374,19 +374,24 @@ const loadData = async () => {
 
     borrowRecords.value = Array.isArray(borrowData)
       ? borrowData.map((record) => {
-        // เติมรหัส/ชื่อครุภัณฑ์จากทะเบียนครุภัณฑ์ เมื่อระเบียนยืมไม่ได้ส่งมา
         const asset = findAssetByReference(assets.value, record);
 
-        return normalizeBorrow(record, {
-          assetId: asset?.id,
-          assetCode: asset?.assetCode,
-          assetName: asset?.name,
-        });
-      })
-      : [];
+        return {
+          ...record,
 
-    supplyTransactions.value = Array.isArray(transactionData)
-      ? transactionData.map(normalizeSupplyTransaction)
+          ...normalizeBorrow(record, {
+            assetId: asset?.id,
+            assetCode: asset?.assetCode,
+            assetName: asset?.name,
+          }),
+
+          // เก็บเบอร์จาก API ให้ติดมากับ borrow record เสมอ
+          borrower_phone: record.borrower_phone
+            || record.borrowerPhone
+            || record.phone
+            || '',
+        };
+      })
       : [];
 
     // คำนวณยอดรับเข้ารวมทั้งหมดจาก transaction type = IN
@@ -704,7 +709,7 @@ const openBorrowModal = () => {
     department: '',
     location: '',
     purpose: '',
-    phone: '',
+    borrowerPhone: '',
     formType: '',
     outOfAreaNote: '',
     isHodAcknowledged: false,
@@ -731,7 +736,7 @@ const borrowFormType = computed(() => (
     purpose: borrowForm.purpose,
     location: borrowForm.location,
     outOfAreaNote: borrowForm.outOfAreaNote,
-    phone: borrowForm.phone,
+    phone: borrowForm.borrowerPhone,
   })
 ));
 
@@ -744,7 +749,7 @@ const submitBorrow = async () => {
   const location = borrowForm.location?.trim();
   const department = (borrowForm.department || location)?.trim();
   const purpose = borrowForm.purpose?.trim();
-  const phone = borrowForm.phone?.trim();
+  const borrowerPhone = borrowForm.borrowerPhone?.trim();
   const borrowDate = borrowForm.startDate;
   const dueDate = borrowForm.dueDate;
   const note = borrowForm.note?.trim() || null;
@@ -787,7 +792,6 @@ const submitBorrow = async () => {
   }
 
   try {
-    // Backend ใช้ชื่อ field borrowedAt และ dueAt
     const payload = {
       assetId,
       borrowerCid,
@@ -796,22 +800,24 @@ const submitBorrow = async () => {
       location: location || department,
       purpose,
 
-      // วันที่จาก input type="date" จะเป็น YYYY-MM-DD
-      // เติมเวลาเพื่อให้ backend บันทึกเป็น DateTime ได้ชัดเจน
       borrowedAt: `${borrowDate}T00:00:00`,
       dueAt: `${dueDate}T23:59:59`,
 
       note,
 
-      // ข้อมูลตามแบบฟอร์มขอยืมครุภัณฑ์คอมพิวเตอร์ (A6-1/A6-2)
       formType: borrowFormType.value,
-      phone: phone || null,
+
+      // เบอร์โทรผู้ยืม: ส่งทั้ง camelCase และ snake_case
+      // เพื่อรองรับ backend ที่ map ได้ต่างกัน
+      borrowerPhone: borrowerPhone || null,
+      borrower_phone: borrowerPhone || null,
+
       outOfAreaNote: borrowFormType.value === 'OUT_OF_AREA'
         ? (outOfAreaNote || null)
         : null,
+
       isHodAcknowledged: Boolean(borrowForm.isHodAcknowledged),
 
-      // รหัส/ชื่อครุภัณฑ์จากทะเบียน เพื่อให้ระเบียนยืมแสดงผลได้ทันที
       assetCode: selectedBorrowAsset.value?.assetCode || null,
       assetName: selectedBorrowAsset.value?.name || null,
     };
@@ -825,7 +831,7 @@ const submitBorrow = async () => {
       department: '',
       location: '',
       purpose: '',
-      phone: '',
+      borrowerPhone: '',
       formType: '',
       outOfAreaNote: '',
       isHodAcknowledged: false,
@@ -1314,7 +1320,7 @@ const suppliesMonthlySummary = computed(() => {
   <div class="min-h-screen flex flex-col font-sans">
     <!-- Navbar -->
     <header
-      class="bg-gradient-to-r from-slate-900 via-indigo-900 to-violet-900 text-white shadow-lg border-b border-white/10">
+      class="app-navbar bg-gradient-to-r from-slate-900 via-indigo-900 to-violet-900 text-white shadow-lg border-b border-white/10">
       <div class="w-full px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div class="flex items-center gap-3">
           <span class="text-2xl font-bold tracking-tight">
