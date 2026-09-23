@@ -8,6 +8,7 @@ import {
 
 import { buildBorrowPrintData } from '../utils/buildBorrowPrintData.js';
 import BorrowFormA62 from './print/BorrowFormA62.vue';
+import BorrowFormA61 from './print/BorrowFormA61.vue';
 
 const props = defineProps({
   borrowRecord: {
@@ -185,7 +186,8 @@ const goBack = () => {
       </button>
     </div>
 
-    <!-- ตอนนี้แสดง A6-2 ก่อน -->
-    <BorrowFormA62 :data="printData" />
+    <BorrowFormA61 v-if="printData.formType === 'OUT_OF_AREA'" :data="printData" />
+
+    <BorrowFormA62 v-else :data="printData" />
   </main>
 </template>

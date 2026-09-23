@@ -955,7 +955,7 @@ app.get('/api/borrows', async (req, res) => {
       FROM borrow_return AS br
       INNER JOIN inventory_assets AS a
         ON a.id = br.asset_id
-      ORDER BY br.borrowed_at DESC, br.id DESC
+      ORDER BY br.created_at DESC, br.id DESC
     `);
 
     res.json(rows.map((row) => ({
@@ -1111,26 +1111,50 @@ app.post('/api/borrows', async (req, res) => {
       });
     }
 
-const insertResult = await conn.query(
-  `INSERT INTO borrow_return (
+    const insertResult = await conn.query(
+      `INSERT INTO borrow_return (
     asset_id,
+    quantity,
+
     borrower_cid,
     borrower_name,
     borrower_phone,
+    borrower_position,
+
     department,
     purpose,
-    due_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  [
-    assetId,
-    borrowerCid,
-    borrowerName,
-    borrowerPhone,
-    department,
-    purpose,
-    dueAt,
-  ],
-);
+    use_location,
+
+    form_type,
+    out_of_area_note,
+
+    borrowed_at,
+    due_at,
+
+    return_note
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        assetId,
+        quantity,
+
+        borrowerCid,
+        borrowerName,
+        borrowerPhone,
+        borrowerPosition,
+
+        department,
+        purpose,
+        useLocation,
+
+        formType,
+        outOfAreaNote,
+
+        borrowedAt,
+        dueAt,
+
+        note,
+      ],
+    );
 
     await conn.query(
       `UPDATE inventory_assets

@@ -95,16 +95,14 @@ const borrowForm = reactive({
   assetId: '',
   borrowerCid: 'TEMP-USER',
   borrowerName: '',
-  department: '',
-
-  // ข้อมูลตามแบบฟอร์มขอยืมครุภัณฑ์คอมพิวเตอร์ (A6-1/A6-2)
   borrowerPhone: '',
+  borrowerPosition: '',
+  department: '',
+  location: '',
+  purpose: '',
   formType: '',
   outOfAreaNote: '',
   isHodAcknowledged: false,
-
-  location: '',
-  purpose: '',
   startDate: '',
   dueDate: '',
   note: '',
@@ -705,16 +703,22 @@ const openBorrowModal = () => {
   Object.assign(borrowForm, {
     assetId: '',
     borrowerCid: 'TEMP-USER',
+
     borrowerName: '',
+    borrowerPhone: '',
+    borrowerPosition: '',
+
     department: '',
     location: '',
     purpose: '',
-    borrowerPhone: '',
+
     formType: '',
     outOfAreaNote: '',
     isHodAcknowledged: false,
+
     startDate: today,
     dueDate: '',
+
     note: '',
   });
 
@@ -744,16 +748,21 @@ const isOutOfAreaBorrow = computed(() => borrowFormType.value === 'OUT_OF_AREA')
 
 const submitBorrow = async () => {
   const assetId = Number(borrowForm.assetId);
+
   const borrowerCid = borrowForm.borrowerCid?.trim() || 'TEMP-USER';
-  const borrowerName = borrowForm.borrowerName?.trim();
-  const location = borrowForm.location?.trim();
-  const department = (borrowForm.department || location)?.trim();
-  const purpose = borrowForm.purpose?.trim();
-  const borrowerPhone = borrowForm.borrowerPhone?.trim();
+  const borrowerName = borrowForm.borrowerName?.trim() || '';
+  const borrowerPhone = borrowForm.borrowerPhone?.trim() || '';
+  const borrowerPosition = borrowForm.borrowerPosition?.trim() || '';
+
+  const location = borrowForm.location?.trim() || '';
+  const department = (borrowForm.department || location)?.trim() || '';
+  const purpose = borrowForm.purpose?.trim() || '';
+
   const borrowDate = borrowForm.startDate;
   const dueDate = borrowForm.dueDate;
+
   const note = borrowForm.note?.trim() || null;
-  const outOfAreaNote = borrowForm.outOfAreaNote?.trim();
+  const outOfAreaNote = borrowForm.outOfAreaNote?.trim() || '';
 
   const missingFields = [];
 
@@ -796,23 +805,25 @@ const submitBorrow = async () => {
       assetId,
       borrowerCid,
       borrowerName,
-      department,
-      location: location || department,
-      purpose,
+
+      borrowerPhone: borrowerPhone || null,
+      borrower_phone: borrowerPhone || null,
+
+      borrowerPosition: borrowerPosition || null,
+      borrower_position: borrowerPosition || null,
+
+      department: department || null,
+      location: location || department || null,
+      purpose: purpose || null,
 
       borrowedAt: `${borrowDate}T00:00:00`,
       dueAt: `${dueDate}T23:59:59`,
 
       note,
 
-      formType: borrowFormType.value,
+      formType: borrowForm.formType,
 
-      // เบอร์โทรผู้ยืม: ส่งทั้ง camelCase และ snake_case
-      // เพื่อรองรับ backend ที่ map ได้ต่างกัน
-      borrowerPhone: borrowerPhone || null,
-      borrower_phone: borrowerPhone || null,
-
-      outOfAreaNote: borrowFormType.value === 'OUT_OF_AREA'
+      outOfAreaNote: borrowForm.formType === 'OUT_OF_AREA'
         ? (outOfAreaNote || null)
         : null,
 
@@ -828,10 +839,11 @@ const submitBorrow = async () => {
       assetId: '',
       borrowerCid: 'TEMP-USER',
       borrowerName: '',
+      borrowerPhone: '',
+      borrowerPosition: '',
       department: '',
       location: '',
       purpose: '',
-      borrowerPhone: '',
       formType: '',
       outOfAreaNote: '',
       isHodAcknowledged: false,
@@ -1618,6 +1630,10 @@ const suppliesMonthlySummary = computed(() => {
 
             <select v-model="borrowForm.formType"
               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="" disabled>
+                เลือกประเภทการยืม
+              </option>
+
               <option value="IN_HOSPITAL">
                 A6-2: ยืมภายในโรงพยาบาล
               </option>
@@ -1646,9 +1662,12 @@ const suppliesMonthlySummary = computed(() => {
               เบอร์โทรติดต่อกลับ
             </label>
 
-            <input v-model="borrowForm.borrowerPhone" type="tel"
+            <input :value="borrowForm.borrowerPhone" type="text" inputmode="numeric" autocomplete="tel" maxlength="10"
+              pattern="[0-9]{10}" title="กรุณากรอกหมายเลขโทรศัพท์ 10 หลัก"
               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="เช่น 081-234-5678">
+              placeholder="เช่น 0801234567" @input="borrowForm.borrowerPhone = $event.target.value
+                .replace(/\D/g, '')
+                .slice(0, 10)">
           </div>
 
           <!-- ตำแหน่ง -->
@@ -1695,24 +1714,6 @@ const suppliesMonthlySummary = computed(() => {
             <input v-model="borrowForm.location" type="text"
               class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               placeholder="เช่น ห้องตรวจ 3, อาคาร OPD ชั้น 2">
-          </div>
-
-          <!-- A6-1 เฉพาะยืมออกนอกพื้นที่ -->
-          <div v-if="isOutOfAreaBorrow" class="rounded-xl border border-amber-200 bg-amber-50 p-3 sm:col-span-2">
-            <label class="mb-1 block text-xs font-medium text-amber-900">
-              รายละเอียดการนำออกนอกพื้นที่
-              <span class="text-rose-500">*</span>
-            </label>
-
-            <textarea v-model="borrowForm.outOfAreaNote" rows="2"
-              class="w-full resize-none rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="เช่น ศูนย์ประชุมจังหวัดเชียงใหม่" />
-
-            <label class="mt-2 flex items-center gap-2 text-xs text-amber-900">
-              <input v-model="borrowForm.isHodAcknowledged" type="checkbox"
-                class="rounded border-amber-300 text-indigo-600 focus:ring-indigo-500">
-              หัวหน้าหน่วยงานรับทราบ
-            </label>
           </div>
 
           <!-- วันที่เริ่มยืม -->
