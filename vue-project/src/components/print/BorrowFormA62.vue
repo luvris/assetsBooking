@@ -203,26 +203,16 @@ const rows = computed(() => {
         </section>
 
         <!-- ลายเซ็น -->
-        <section class="mt-[6mm] grid grid-cols-2 gap-x-[14mm] print:break-inside-avoid">
-            <div class="text-center">
+        <section class="mt-[6mm] flex justify-end print:break-inside-avoid">
+            <div class="w-[88mm] text-center">
                 <p class="my-[1.5mm]">
                     ลงชื่อ.....................................................(ผู้ขอใช้บริการ)
                 </p>
+
                 <p class="my-[1.5mm]">
                     ({{ data.borrowerName }})
                 </p>
-                <p class="my-[1.5mm]">
-                    วันที่.............................................
-                </p>
-            </div>
 
-            <div class="text-center">
-                <p class="my-[1.5mm]">
-                    ลงชื่อ.....................................................(ผู้รับรอง/หัวหน้างาน)
-                </p>
-                <p class="my-[1.5mm]">
-                    (.....................................................)
-                </p>
                 <p class="my-[1.5mm]">
                     วันที่.............................................
                 </p>
