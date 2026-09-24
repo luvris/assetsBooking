@@ -92,7 +92,7 @@ const categoryForm = reactive({
 });
 
 const borrowForm = reactive({
-  assetId: '',
+  assetIds: [],
   borrowerCid: 'TEMP-USER',
   borrowerName: '',
   borrowerPhone: '',
@@ -107,6 +107,15 @@ const borrowForm = reactive({
   dueDate: '',
   note: '',
 });
+
+/** จำนวนอุปกรณ์สูงสุดที่ยืมได้ใน 1 ครั้ง */
+const MAX_BORROW_ASSETS = 3;
+
+/** หมวดหมู่ที่เลือกในฟอร์มยืม (กรองรายการอุปกรณ์) */
+const borrowCategoryId = ref('');
+
+/** ค้นหาชื่อ/รหัสอุปกรณ์ภายในหมวดที่เลือก */
+const borrowAssetSearch = ref('');
 
 const supplyTxForm = reactive({
   supplyId: '',
@@ -701,7 +710,7 @@ const openBorrowModal = () => {
   const today = new Date().toISOString().slice(0, 10);
 
   Object.assign(borrowForm, {
-    assetId: '',
+    assetIds: [],
     borrowerCid: 'TEMP-USER',
 
     borrowerName: '',
@@ -722,13 +731,91 @@ const openBorrowModal = () => {
     note: '',
   });
 
+  borrowCategoryId.value = '';
+  borrowAssetSearch.value = '';
   showBorrowModal.value = true;
 };
 
-/** ครุภัณฑ์ที่เลือกไว้ในฟอร์มยืม */
-const selectedBorrowAsset = computed(() => (
-  assets.value.find((item) => Number(item.id) === Number(borrowForm.assetId)) || null
+/** หมวดหมู่ครุภัณฑ์สำหรับฟอร์มยืม */
+const assetCategoriesForBorrow = computed(() => (
+  categories.value.filter((category) => category.type === 'asset')
 ));
+
+/** ครุภัณฑ์ที่พร้อมให้ยืม */
+const availableBorrowAssets = computed(() => (
+  assets.value.filter((asset) => asset.status === 'Available')
+));
+
+/** ครุภัณฑ์ที่พร้อมให้ยืม ตามหมวด + คำค้น */
+const filteredBorrowAssets = computed(() => {
+  if (!borrowCategoryId.value) {
+    return [];
+  }
+
+  const categoryId = Number(borrowCategoryId.value);
+  const keyword = borrowAssetSearch.value.trim().toLowerCase();
+
+  return availableBorrowAssets.value.filter((asset) => {
+    if (Number(asset.categoryId) !== categoryId) {
+      return false;
+    }
+
+    if (!keyword) {
+      return true;
+    }
+
+    const haystack = [
+      asset.assetCode,
+      asset.name,
+      asset.brand,
+      asset.model,
+      asset.serialNumber,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(keyword);
+  });
+});
+
+/** ครุภัณฑ์ที่เลือกไว้ในฟอร์มยืม */
+const selectedBorrowAssets = computed(() => (
+  borrowForm.assetIds
+    .map((id) => assets.value.find((item) => Number(item.id) === Number(id)))
+    .filter(Boolean)
+));
+
+const isBorrowAssetSelected = (assetId) => (
+  borrowForm.assetIds.some((id) => Number(id) === Number(assetId))
+);
+
+const toggleBorrowAsset = (assetId) => {
+  const numericId = Number(assetId);
+  const index = borrowForm.assetIds.findIndex((id) => Number(id) === numericId);
+
+  if (index >= 0) {
+    borrowForm.assetIds.splice(index, 1);
+    return;
+  }
+
+  if (borrowForm.assetIds.length >= MAX_BORROW_ASSETS) {
+    alert(`ยืมครุภัณฑ์ได้สูงสุด ${MAX_BORROW_ASSETS} อุปกรณ์ต่อครั้ง`);
+    return;
+  }
+
+  borrowForm.assetIds.push(numericId);
+};
+
+const removeBorrowAsset = (assetId) => {
+  const index = borrowForm.assetIds.findIndex(
+    (id) => Number(id) === Number(assetId),
+  );
+
+  if (index >= 0) {
+    borrowForm.assetIds.splice(index, 1);
+  }
+};
 
 /**
  * ประเภทใบขอยืม: ผู้ใช้เลือกเองก่อน ถ้าไม่เลือกจึงเดาจากข้อมูลที่กรอก
@@ -747,7 +834,11 @@ const borrowFormType = computed(() => (
 const isOutOfAreaBorrow = computed(() => borrowFormType.value === 'OUT_OF_AREA');
 
 const submitBorrow = async () => {
-  const assetId = Number(borrowForm.assetId);
+  const assetIds = [...new Set(
+    borrowForm.assetIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  )];
 
   const borrowerCid = borrowForm.borrowerCid?.trim() || 'TEMP-USER';
   const borrowerName = borrowForm.borrowerName?.trim() || '';
@@ -766,7 +857,7 @@ const submitBorrow = async () => {
 
   const missingFields = [];
 
-  if (!assetId) {
+  if (assetIds.length === 0) {
     missingFields.push('อุปกรณ์');
   }
 
@@ -795,14 +886,23 @@ const submitBorrow = async () => {
     return;
   }
 
+  if (assetIds.length > MAX_BORROW_ASSETS) {
+    alert(`ยืมครุภัณฑ์ได้สูงสุด ${MAX_BORROW_ASSETS} อุปกรณ์ต่อครั้ง`);
+    return;
+  }
+
   if (new Date(dueDate) < new Date(borrowDate)) {
     alert('วันที่กำหนดคืนต้องไม่ก่อนวันที่ยืม');
     return;
   }
 
   try {
+    const primaryAsset = selectedBorrowAssets.value[0] || null;
+
     const payload = {
-      assetId,
+      assetId: assetIds[0],
+      assetIds,
+
       borrowerCid,
       borrowerName,
 
@@ -829,14 +929,14 @@ const submitBorrow = async () => {
 
       isHodAcknowledged: Boolean(borrowForm.isHodAcknowledged),
 
-      assetCode: selectedBorrowAsset.value?.assetCode || null,
-      assetName: selectedBorrowAsset.value?.name || null,
+      assetCode: primaryAsset?.assetCode || null,
+      assetName: primaryAsset?.name || null,
     };
 
     await api.createBorrow(payload);
 
     Object.assign(borrowForm, {
-      assetId: '',
+      assetIds: [],
       borrowerCid: 'TEMP-USER',
       borrowerName: '',
       borrowerPhone: '',
@@ -852,6 +952,8 @@ const submitBorrow = async () => {
       note: '',
     });
 
+    borrowCategoryId.value = '';
+    borrowAssetSearch.value = '';
     showBorrowModal.value = false;
 
     await loadData();
@@ -1592,37 +1694,146 @@ const suppliesMonthlySummary = computed(() => {
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <!-- อุปกรณ์ -->
           <div class="sm:col-span-2">
-            <label class="mb-1 block text-xs font-medium text-slate-600">
-              เลือกอุปกรณ์ที่พร้อมให้ยืม
-              <span class="text-rose-500">*</span>
-            </label>
+            <div class="mb-1 flex items-center justify-between gap-2">
+              <label class="block text-xs font-medium text-slate-600">
+                เลือกอุปกรณ์ที่พร้อมให้ยืม
+                <span class="text-rose-500">*</span>
+              </label>
 
-            <select v-model="borrowForm.assetId"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option disabled value="">
-                -- เลือกอุปกรณ์ --
-              </option>
+              <span class="text-xs text-slate-500">
+                เลือกแล้ว {{ borrowForm.assetIds.length }}/{{ MAX_BORROW_ASSETS }}
+              </span>
+            </div>
 
-              <option v-for="item in assets.filter((asset) => asset.status === 'Available')" :key="item.id"
-                :value="item.id">
-                {{ item.assetCode }} - {{ item.name }}
-              </option>
-            </select>
-          </div>
+            <!-- ขั้น 1: เลือกหมวดหมู่ -->
+            <div class="mb-2">
+              <label class="mb-1 block text-xs font-medium text-slate-600">
+                1. หมวดหมู่ประเภทอุปกรณ์
+              </label>
 
-          <!-- จำนวน -->
-          <div>
-            <label class="mb-1 block text-xs font-medium text-slate-600">
-              จำนวน
-              <span class="text-rose-500">*</span>
-            </label>
+              <select
+                v-model="borrowCategoryId"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                @change="borrowAssetSearch = ''"
+              >
+                <option value="">
+                  -- เลือกหมวดหมู่ก่อน --
+                </option>
 
-            <input v-model.number="borrowForm.quantity" type="number" min="1"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option
+                  v-for="cat in assetCategoriesForBorrow"
+                  :key="cat.id"
+                  :value="cat.id"
+                >
+                  {{ cat.name }}
+                </option>
+              </select>
+            </div>
+
+            <!-- ขั้น 2: ค้นหา + เลือกอุปกรณ์ในหมวด -->
+            <div v-if="borrowCategoryId" class="space-y-2">
+              <div>
+                <label class="mb-1 block text-xs font-medium text-slate-600">
+                  2. ค้นหา / เลือกอุปกรณ์
+                </label>
+
+                <input
+                  v-model="borrowAssetSearch"
+                  type="search"
+                  class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="พิมพ์ชื่อ รหัส หรือซีเรียลเพื่อค้นหา..."
+                >
+              </div>
+
+              <div
+                class="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-300 p-2"
+              >
+                <label
+                  v-for="item in filteredBorrowAssets"
+                  :key="item.id"
+                  class="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm transition hover:bg-slate-50"
+                  :class="{
+                    'bg-indigo-50': isBorrowAssetSelected(item.id),
+                    'opacity-50': !isBorrowAssetSelected(item.id)
+                      && borrowForm.assetIds.length >= MAX_BORROW_ASSETS,
+                  }"
+                >
+                  <input
+                    type="checkbox"
+                    class="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    :checked="isBorrowAssetSelected(item.id)"
+                    :disabled="!isBorrowAssetSelected(item.id)
+                      && borrowForm.assetIds.length >= MAX_BORROW_ASSETS"
+                    @change="toggleBorrowAsset(item.id)"
+                  >
+
+                  <span>
+                    <span class="font-medium text-slate-800">
+                      {{ item.assetCode }} - {{ item.name }}
+                    </span>
+
+                    <span
+                      v-if="item.brand || item.model"
+                      class="mt-0.5 block text-xs text-slate-400"
+                    >
+                      {{ [item.brand, item.model].filter(Boolean).join(' / ') }}
+                    </span>
+                  </span>
+                </label>
+
+                <p
+                  v-if="filteredBorrowAssets.length === 0"
+                  class="px-2 py-3 text-center text-xs text-slate-400"
+                >
+                  {{ borrowAssetSearch.trim()
+                    ? 'ไม่พบอุปกรณ์ที่ตรงกับคำค้นในหมวดนี้'
+                    : 'ไม่มีอุปกรณ์พร้อมยืมในหมวดนี้' }}
+                </p>
+              </div>
+            </div>
+
+            <p
+              v-else
+              class="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-400"
+            >
+              เลือกหมวดหมู่ก่อน เพื่อแสดงรายการอุปกรณ์
+            </p>
+
+            <!-- รายการที่เลือกแล้ว (ข้ามหมวดได้) -->
+            <div
+              v-if="selectedBorrowAssets.length > 0"
+              class="mt-3 space-y-1.5 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2"
+            >
+              <p class="text-xs font-medium text-indigo-700">
+                อุปกรณ์ที่เลือกแล้ว
+              </p>
+
+              <div
+                v-for="item in selectedBorrowAssets"
+                :key="item.id"
+                class="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1.5 text-sm"
+              >
+                <span class="min-w-0 truncate text-slate-800">
+                  {{ item.assetCode }} - {{ item.name }}
+                </span>
+
+                <button
+                  type="button"
+                  class="shrink-0 rounded px-2 py-0.5 text-xs text-rose-600 transition hover:bg-rose-50"
+                  @click="removeBorrowAsset(item.id)"
+                >
+                  ลบ
+                </button>
+              </div>
+            </div>
+
+            <p class="mt-1 text-xs text-slate-500">
+              ยืมได้สูงสุด {{ MAX_BORROW_ASSETS }} อุปกรณ์ต่อครั้ง (เลือกข้ามหมวดได้)
+            </p>
           </div>
 
           <!-- ประเภทแบบฟอร์ม -->
-          <div>
+          <div class="sm:col-span-2">
             <label class="mb-1 block text-xs font-medium text-slate-600">
               ประเภทใบขอยืม
               <span class="text-rose-500">*</span>

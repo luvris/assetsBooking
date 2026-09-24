@@ -3,7 +3,6 @@ import { computed, nextTick } from 'vue';
 
 import {
   normalizeAsset,
-  normalizeBorrow,
 } from '../utils/inventoryRecords.js';
 
 import { buildBorrowPrintData } from '../utils/buildBorrowPrintData.js';
@@ -26,57 +25,58 @@ const emit = defineEmits(['back']);
 
 /**
  * หา asset จากรายการ assets ที่ App.vue โหลดไว้แล้ว
- * borrowRecord มี assetId / asset_id
+ * รองรับทั้งรายการเดียว (assetId) และหลายรายการ (assets[])
  */
-const assetRecord = computed(() => {
+const assetRecords = computed(() => {
   const borrow = props.borrowRecord || {};
+  const listedAssets = Array.isArray(borrow.assets) ? borrow.assets : [];
 
-  const assetId = Number(
-    borrow.assetId
-    ?? borrow.asset_id,
+  if (listedAssets.length > 0) {
+    return listedAssets.map((item) => {
+      const matched = props.assets.find(
+        (asset) => Number(asset.id) === Number(item.id),
+      );
+
+      return matched
+        ? {
+          ...matched,
+          quantity: item.quantity || 1,
+          unit: matched.unit || 'เครื่อง',
+        }
+        : {
+          ...item,
+          name: item.name || item.assetName,
+          quantity: item.quantity || 1,
+          unit: item.unit || 'เครื่อง',
+        };
+    });
+  }
+
+  const assetId = Number(borrow.assetId ?? borrow.asset_id);
+  const matched = props.assets.find(
+    (asset) => Number(asset.id) === assetId,
   );
 
-  return props.assets.find(
-    (asset) => Number(asset.id) === assetId,
-  ) || null;
+  return matched
+    ? [{
+      ...matched,
+      quantity: borrow.quantity || 1,
+      unit: matched.unit || 'เครื่อง',
+    }]
+    : [];
 });
 
 /**
- * เปลี่ยน borrow record ให้ใช้ชื่อ field กลาง เช่น:
- * borrowerName, borrowedAt, dueAt, formType
- */
-const borrow = computed(() => {
-  const selectedAsset = assetRecord.value;
-
-  return normalizeBorrow(props.borrowRecord, {
-    assetId: selectedAsset?.id,
-    assetCode: selectedAsset?.assetCode,
-    assetName: selectedAsset?.name,
-  });
-});
-
-/**
- * เปลี่ยน asset เป็นรูปแบบกลาง
- */
-const asset = computed(() => (
-  assetRecord.value
-    ? normalizeAsset(assetRecord.value)
-    : null
-));
-
-/**
- * Object ที่แบบฟอร์ม A6-2 รับไปแสดง
+ * Object ที่แบบฟอร์ม A6-1/A6-2 รับไปแสดง
  */
 const printData = computed(() => (
   buildBorrowPrintData(
     props.borrowRecord,
-    asset.value
-      ? [{
-        ...asset.value,
-        quantity: borrow.value.quantity || 1,
-        unit: asset.value.unit || 'เครื่อง',
-      }]
-      : [],
+    assetRecords.value.map((item) => ({
+      ...normalizeAsset(item),
+      quantity: item.quantity || 1,
+      unit: item.unit || 'เครื่อง',
+    })),
   )
 ));
 

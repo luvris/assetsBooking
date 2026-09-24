@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue';
+import hospitalLogo from '../../assets/IMG_6876.jpg';
 
 const props = defineProps({
     data: {
@@ -24,67 +25,69 @@ const rows = computed(() => {
 
 <template>
     <article id="borrow-print-document"
-        class="print-a4-page print-document mx-auto min-h-[297mm] w-[210mm] bg-white px-[12mm] py-[10mm] font-sans text-[16px] leading-[1.25] text-black print:m-0 print:min-h-[297mm] print:w-[210mm] print:px-[12mm] print:py-[10mm]">
-        <header class="mb-[4mm]">
-            <div class="mb-[2mm] flex items-start gap-[4mm]">
-                <div class="grid h-[18mm] w-[18mm] shrink-0 place-items-center border border-black text-[9px]">
-                    LOGO
+        class="print-a4-page print-document a61-memo mx-auto min-h-[297mm] w-[210mm] bg-white px-[14mm] py-[10mm] text-black print:m-0 print:min-h-[297mm] print:w-[210mm] print:px-[14mm] print:py-[10mm]">
+        <!--
+          Layout ตามแบบบันทึกข้อความราชการ:
+          - ตรา/โลโก้ มุมซ้ายบน
+          - หัวข้อ "บันทึกข้อความ" กึ่งกลางหน้ากระดาษ
+          - ช่อง ส่วนราชการ / ที่+วันที่ / เรื่อง เต็มความกว้างด้านล่าง
+        -->
+        <header class="a61-memo__header mb-[5mm]">
+            <div class="a61-memo__title-row relative mb-[3mm] min-h-[22mm]">
+                <img
+                    :src="hospitalLogo"
+                    alt="โลโก้โรงพยาบาลประสาทเชียงใหม่"
+                    class="a61-memo__logo absolute left-0 top-0 h-[20mm] w-[20mm] object-contain"
+                >
+
+                <h1 class="a61-memo__title m-0 pt-[2mm] text-center text-[29px] font-bold leading-none tracking-wide">
+                    บันทึกข้อความ
+                </h1>
+            </div>
+
+            <div class="a61-memo__fields text-[16px] leading-[1.7]">
+                <div class="a61-memo__field flex items-end gap-[2mm]">
+                    <span class="a61-memo__label shrink-0 font-bold">ส่วนราชการ</span>
+                    <span class="a61-memo__dots min-w-0 flex-1 px-[1mm]">
+                        กลุ่มงานดิจิทัลการแพทย์ โรงพยาบาลประสาทเชียงใหม่
+                    </span>
                 </div>
 
-                <div class="min-w-0 flex-1">
-                    <h1 class="m-0 text-center text-[22px] font-bold leading-[1.15]">
-                        บันทึกข้อความ
-                    </h1>
-
-                    <div class="mt-[2mm] text-[14px] leading-[1.55]">
-                        <div class="flex items-baseline gap-[2mm]">
-                            <span class="whitespace-nowrap font-bold">ส่วนราชการ</span>
-                            <span class="min-w-0 flex-1 border-b border-dotted border-black px-[1mm] pb-[0.5mm]">
-                                กลุ่มงานดิจิทัลการแพทย์ โรงพยาบาลประสาทเชียงใหม่
-                            </span>
-                        </div>
-
-                        <div class="mt-[1mm] grid grid-cols-2 gap-x-[8mm]">
-                            <div class="flex items-baseline gap-[2mm]">
-                                <span class="font-bold">ที่</span>
-                                <span class="min-w-0 flex-1 border-b border-dotted border-black">
-                                    &nbsp;
-                                </span>
-                            </div>
-
-                            <div class="flex items-baseline gap-[2mm]">
-                                <span class="font-bold">วันที่</span>
-                                <span class="min-w-0 flex-1 border-b border-dotted border-black">
-                                    &nbsp;
-                                </span>
-                            </div>
-                        </div>
-
-                        <div class="mt-[1mm] flex items-baseline gap-[2mm]">
-                            <span class="font-bold">เรื่อง</span>
-                            <span class="min-w-0 flex-1 border-b border-dotted border-black px-[1mm] pb-[0.5mm]">
-                                ขออนุญาตยืมครุภัณฑ์คอมพิวเตอร์ออกนอกพื้นที่โรงพยาบาลประสาทเชียงใหม่
-                            </span>
-                        </div>
+                <div class="a61-memo__field mt-[1mm] flex items-end gap-[6mm]">
+                    <div class="flex min-w-0 flex-[1.05] items-end gap-[2mm]">
+                        <span class="a61-memo__label shrink-0 font-bold">ที่</span>
+                        <span class="a61-memo__dots min-w-0 flex-1">&nbsp;</span>
                     </div>
+
+                    <div class="flex min-w-0 flex-1 items-end gap-[2mm]">
+                        <span class="a61-memo__label shrink-0 font-bold">วันที่</span>
+                        <span class="a61-memo__dots min-w-0 flex-1">&nbsp;</span>
+                    </div>
+                </div>
+
+                <div class="a61-memo__field mt-[1mm] flex items-end gap-[2mm]">
+                    <span class="a61-memo__label shrink-0 font-bold">เรื่อง</span>
+                    <span class="a61-memo__dots min-w-0 flex-1 px-[1mm]">
+                        ขออนุญาตยืมครุภัณฑ์คอมพิวเตอร์ ออกนอกพื้นที่โรงพยาบาลประสาทเชียงใหม่
+                    </span>
                 </div>
             </div>
         </header>
 
-        <section class="text-[16px]">
+        <section class="text-[16px] leading-[1.55]">
             <p class="mb-[3mm]">เรียน ผู้อำนวยการโรงพยาบาลประสาทเชียงใหม่</p>
 
-            <p class="mb-[3mm] indent-[12mm] leading-[1.55]">
+            <p class="mb-[3mm] indent-[12mm]">
                 ด้วยข้าพเจ้า
-                <span class="inline-block min-w-[54mm] border-b border-dotted border-black px-[1mm]">
+                <span class="a61-memo__inline-dots inline-block min-w-[54mm] px-[1mm]">
                     {{ data.borrowerName || '-' }}
                 </span>
                 ตำแหน่ง
-                <span class="inline-block min-w-[34mm] border-b border-dotted border-black px-[1mm]">
+                <span class="a61-memo__inline-dots inline-block min-w-[34mm] px-[1mm]">
                     {{ data.position || '-' }}
                 </span>
                 หน่วยงาน
-                <span class="inline-block min-w-[43mm] border-b border-dotted border-black px-[1mm]">
+                <span class="a61-memo__inline-dots inline-block min-w-[43mm] px-[1mm]">
                     {{ data.department || '-' }}
                 </span>
                 มีความประสงค์จะขอยืมพัสดุ/ครุภัณฑ์คอมพิวเตอร์
@@ -117,25 +120,25 @@ const rows = computed(() => {
 
             <p class="mb-[3mm] indent-[12mm] leading-[1.55]">
                 รายละเอียดเหตุผล
-                <span class="inline-block min-w-[122mm] border-b border-dotted border-black px-[1mm] break-words">
+                <span class="a61-memo__inline-dots inline-block min-w-[122mm] break-words px-[1mm]">
                     {{ data.purpose || '-' }}
                 </span>
             </p>
 
             <p class="mb-[3mm] indent-[12mm] leading-[1.55]">
                 ในระหว่างวันที่
-                <span class="inline-block min-w-[43mm] border-b border-dotted border-black px-[1mm]">
+                <span class="a61-memo__inline-dots inline-block min-w-[43mm] px-[1mm]">
                     {{ data.borrowedDateText }}
                 </span>
                 ถึงวันที่
-                <span class="inline-block min-w-[43mm] border-b border-dotted border-black px-[1mm]">
+                <span class="a61-memo__inline-dots inline-block min-w-[43mm] px-[1mm]">
                     {{ data.dueDateText }}
                 </span>
             </p>
 
             <p class="mb-[4mm] indent-[12mm] leading-[1.55]">
                 สถานที่
-                <span class="inline-block min-w-[138mm] border-b border-dotted border-black px-[1mm] break-words">
+                <span class="a61-memo__inline-dots inline-block min-w-[138mm] break-words px-[1mm]">
                     {{ data.useLocation || '-' }}
                 </span>
             </p>
@@ -290,3 +293,35 @@ const rows = computed(() => {
         </section>
     </article>
 </template>
+
+<style scoped>
+.a61-memo {
+    font-family: 'Sarabun', 'TH Sarabun New', 'THSarabunNew', Tahoma, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+}
+
+.a61-memo__title {
+    font-family: 'Sarabun', 'TH Sarabun New', 'THSarabunNew', Tahoma, sans-serif;
+}
+
+/* จุดไข่ปลาแนวตั้งแบบเอกสารราชการ (ไม่ใช้ border-dotted ที่จุดหยาบ) */
+.a61-memo__dots,
+.a61-memo__inline-dots {
+    border-bottom: 1.2px dotted #000;
+    padding-bottom: 0.4mm;
+    line-height: 1.35;
+}
+
+.a61-memo__label {
+    line-height: 1.35;
+    padding-bottom: 0.4mm;
+}
+
+@media print {
+    .a61-memo {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+</style>

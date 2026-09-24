@@ -918,6 +918,94 @@ app.put('/api/supplies/:id', async (req, res) => {
   }
 });
 
+/** จำนวนอุปกรณ์สูงสุดที่ยืมได้ใน 1 รายการ */
+const MAX_BORROW_ASSETS_PER_REQUEST = 3;
+
+function normalizeAssetIds(body) {
+  const rawIds = Array.isArray(body.assetIds)
+    ? body.assetIds
+    : [body.assetId];
+
+  return [...new Set(
+    rawIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0),
+  )];
+}
+
+function mapBorrowAssets(rows) {
+  const byBorrowId = new Map();
+
+  for (const row of rows) {
+    const borrowId = Number(row.id);
+
+    if (!byBorrowId.has(borrowId)) {
+      byBorrowId.set(borrowId, {
+        id: borrowId,
+        assetId: row.assetId === null ? null : Number(row.assetId),
+        assetCode: row.assetCode || null,
+        assetName: row.assetName || null,
+        quantity: Number(row.quantity || 1),
+
+        borrowerCid: row.borrowerCid,
+        borrowerName: row.borrowerName,
+        borrowerPhone: row.borrowerPhone,
+        borrowerPosition: row.borrowerPosition,
+
+        department: row.department,
+        purpose: row.purpose,
+        useLocation: row.useLocation,
+
+        formType: row.formType,
+        outOfAreaNote: row.outOfAreaNote,
+
+        borrowedAt: row.borrowedAt,
+        dueAt: row.dueAt,
+        returnedAt: row.returnedAt,
+
+        receivedByCid: row.receivedByCid,
+        returnNote: row.returnNote,
+        createdAt: row.createdAt,
+
+        assets: [],
+      });
+    }
+
+    const borrow = byBorrowId.get(borrowId);
+
+    if (row.itemAssetId !== null && row.itemAssetId !== undefined) {
+      borrow.assets.push({
+        id: Number(row.itemAssetId),
+        assetCode: row.itemAssetCode,
+        name: row.itemAssetName,
+        brand: row.itemBrand || null,
+        model: row.itemModel || null,
+        quantity: Number(row.itemQuantity || 1),
+      });
+    }
+  }
+
+  return [...byBorrowId.values()].map((borrow) => {
+    if (borrow.assets.length === 0 && borrow.assetId) {
+      borrow.assets = [{
+        id: borrow.assetId,
+        assetCode: borrow.assetCode,
+        name: borrow.assetName,
+        quantity: borrow.quantity,
+      }];
+    }
+
+    if (borrow.assets.length > 0) {
+      borrow.assetId = borrow.assets[0].id;
+      borrow.assetCode = borrow.assets[0].assetCode;
+      borrow.assetName = borrow.assets[0].name;
+      borrow.quantity = borrow.assets[0].quantity;
+    }
+
+    return borrow;
+  });
+}
+
 app.get('/api/borrows', async (req, res) => {
   let conn;
 
@@ -927,10 +1015,10 @@ app.get('/api/borrows', async (req, res) => {
     const rows = await conn.query(`
       SELECT
         br.id,
-        br.asset_id AS assetId,
-        a.asset_code AS assetCode,
-        a.name AS assetName,
 
+        br.asset_id AS assetId,
+        legacy_asset.asset_code AS assetCode,
+        legacy_asset.name AS assetName,
         br.quantity,
 
         br.borrower_cid AS borrowerCid,
@@ -951,19 +1039,30 @@ app.get('/api/borrows', async (req, res) => {
 
         br.received_by_cid AS receivedByCid,
         br.return_note AS returnNote,
-        br.created_at AS createdAt
+        br.created_at AS createdAt,
+
+        bri.asset_id AS itemAssetId,
+        item_asset.asset_code AS itemAssetCode,
+        item_asset.name AS itemAssetName,
+        item_asset.brand AS itemBrand,
+        item_asset.model AS itemModel,
+        bri.quantity AS itemQuantity
+
       FROM borrow_return AS br
-      INNER JOIN inventory_assets AS a
-        ON a.id = br.asset_id
-      ORDER BY br.created_at DESC, br.id DESC
+
+      LEFT JOIN inventory_assets AS legacy_asset
+        ON legacy_asset.id = br.asset_id
+
+      LEFT JOIN borrow_return_items AS bri
+        ON bri.borrow_return_id = br.id
+
+      LEFT JOIN inventory_assets AS item_asset
+        ON item_asset.id = bri.asset_id
+
+      ORDER BY br.created_at DESC, br.id DESC, bri.id ASC
     `);
 
-    res.json(rows.map((row) => ({
-      ...row,
-      id: Number(row.id),
-      assetId: Number(row.assetId),
-      quantity: Number(row.quantity || 1),
-    })));
+    res.json(mapBorrowAssets(rows));
   } catch (error) {
     console.error('Get borrows failed:', error.message);
 
@@ -977,11 +1076,11 @@ app.get('/api/borrows', async (req, res) => {
 
 app.post('/api/borrows', async (req, res) => {
   console.log('POST /api/borrows body:', req.body);
-  const assetId = Number(req.body.assetId);
+
+  const assetIds = normalizeAssetIds(req.body);
 
   const borrowerCid = String(req.body.borrowerCid || '').trim();
   const borrowerName = String(req.body.borrowerName || '').trim();
-
 
   const borrowerPhone = String(
     req.body.borrowerPhone
@@ -989,8 +1088,6 @@ app.post('/api/borrows', async (req, res) => {
     ?? req.body.phone
     ?? '',
   ).trim() || null;
-
-  console.log('borrowerPhone to save:', borrowerPhone);
 
   const borrowerPosition = String(
     req.body.borrowerPosition
@@ -1029,13 +1126,17 @@ app.post('/api/borrows', async (req, res) => {
     ? new Date(req.body.dueAt)
     : null;
 
-  const quantity = Number(req.body.quantity || 1);
-
   const note = String(req.body.note || '').trim() || null;
 
-  if (!Number.isInteger(assetId) || assetId <= 0) {
+  if (assetIds.length === 0) {
     return res.status(400).json({
-      message: 'รหัสครุภัณฑ์ไม่ถูกต้อง',
+      message: 'กรุณาเลือกครุภัณฑ์อย่างน้อย 1 รายการ',
+    });
+  }
+
+  if (assetIds.length > MAX_BORROW_ASSETS_PER_REQUEST) {
+    return res.status(400).json({
+      message: `ยืมครุภัณฑ์ได้สูงสุด ${MAX_BORROW_ASSETS_PER_REQUEST} อุปกรณ์ต่อครั้ง`,
     });
   }
 
@@ -1069,12 +1170,6 @@ app.post('/api/borrows', async (req, res) => {
     });
   }
 
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    return res.status(400).json({
-      message: 'จำนวนที่ยืมต้องเป็นตัวเลขมากกว่า 0',
-    });
-  }
-
   let conn;
   let transactionStarted = false;
 
@@ -1083,59 +1178,80 @@ app.post('/api/borrows', async (req, res) => {
     await conn.beginTransaction();
     transactionStarted = true;
 
+    const placeholders = assetIds.map(() => '?').join(', ');
+
     const assetRows = await conn.query(
-      `SELECT id, asset_code, name, status, is_archived
-       FROM inventory_assets
-       WHERE id = ?
-       FOR UPDATE`,
-      [assetId],
+      `SELECT
+        id,
+        asset_code,
+        name,
+        brand,
+        model,
+        status,
+        is_archived
+      FROM inventory_assets
+      WHERE id IN (${placeholders})
+      FOR UPDATE`,
+      assetIds,
     );
 
-    const asset = assetRows[0];
-
-    if (!asset || Number(asset.is_archived) === 1) {
+    if (assetRows.length !== assetIds.length) {
       await conn.rollback();
       transactionStarted = false;
 
       return res.status(404).json({
-        message: 'ไม่พบครุภัณฑ์ หรือครุภัณฑ์ถูกนำออกจากรายการแล้ว',
+        message: 'พบครุภัณฑ์บางรายการไม่อยู่ในระบบ',
       });
     }
 
-    if (asset.status !== 'AVAILABLE') {
+    const unavailableAssets = assetRows.filter(
+      (asset) => Number(asset.is_archived) === 1 || asset.status !== 'AVAILABLE',
+    );
+
+    if (unavailableAssets.length > 0) {
       await conn.rollback();
       transactionStarted = false;
 
+      const names = unavailableAssets
+        .map((asset) => `${asset.asset_code} - ${asset.name}`)
+        .join(', ');
+
       return res.status(409).json({
-        message: 'ครุภัณฑ์นี้ไม่พร้อมให้ยืม',
+        message: `ครุภัณฑ์บางรายการไม่พร้อมให้ยืม: ${names}`,
       });
     }
 
+    const assetById = new Map(
+      assetRows.map((asset) => [Number(asset.id), asset]),
+    );
+
+    const primaryAssetId = assetIds[0];
+
     const insertResult = await conn.query(
       `INSERT INTO borrow_return (
-    asset_id,
-    quantity,
-
-    borrower_cid,
-    borrower_name,
-    borrower_phone,
-    borrower_position,
-
-    department,
-    purpose,
-    use_location,
-
-    form_type,
-    out_of_area_note,
-
-    borrowed_at,
-    due_at,
-
-    return_note
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        assetId,
+        asset_id,
         quantity,
+
+        borrower_cid,
+        borrower_name,
+        borrower_phone,
+        borrower_position,
+
+        department,
+        purpose,
+        use_location,
+
+        form_type,
+        out_of_area_note,
+
+        borrowed_at,
+        due_at,
+
+        return_note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        primaryAssetId,
+        assetIds.length,
 
         borrowerCid,
         borrowerName,
@@ -1156,24 +1272,50 @@ app.post('/api/borrows', async (req, res) => {
       ],
     );
 
+    const borrowId = Number(insertResult.insertId);
+
+    for (const assetId of assetIds) {
+      await conn.query(
+        `INSERT INTO borrow_return_items (
+          borrow_return_id,
+          asset_id,
+          quantity
+        ) VALUES (?, ?, ?)`,
+        [borrowId, assetId, 1],
+      );
+    }
+
     await conn.query(
       `UPDATE inventory_assets
-       SET status = 'BORROWED'
-       WHERE id = ?`,
-      [assetId],
+      SET status = 'BORROWED'
+      WHERE id IN (${placeholders})`,
+      assetIds,
     );
 
     await conn.commit();
     transactionStarted = false;
 
+    const assets = assetIds.map((assetId) => {
+      const asset = assetById.get(assetId);
+
+      return {
+        id: assetId,
+        assetCode: asset.asset_code,
+        name: asset.name,
+        brand: asset.brand || null,
+        model: asset.model || null,
+        quantity: 1,
+      };
+    });
+
     res.status(201).json({
-      id: Number(insertResult.insertId),
+      id: borrowId,
 
-      assetId,
-      assetCode: asset.asset_code,
-      assetName: asset.name,
-
-      quantity,
+      assetId: primaryAssetId,
+      assetCode: assets[0].assetCode,
+      assetName: assets[0].name,
+      quantity: assets.length,
+      assets,
 
       borrowerCid,
       borrowerName,
@@ -1191,7 +1333,6 @@ app.post('/api/borrows', async (req, res) => {
       dueAt,
 
       note,
-
       status: 'BORROWED',
       message: 'บันทึกการยืมครุภัณฑ์สำเร็จ',
     });
@@ -1231,18 +1372,13 @@ app.post('/api/borrows/:id/return', async (req, res) => {
 
     const borrowRows = await conn.query(
       `SELECT
-        br.id,
-        br.asset_id,
-        br.borrower_cid,
-        br.borrower_name,
-        br.returned_at,
-        a.asset_code,
-        a.name AS asset_name,
-        a.status AS asset_status
-      FROM borrow_return AS br
-      INNER JOIN inventory_assets AS a
-        ON a.id = br.asset_id
-      WHERE br.id = ?
+        id,
+        asset_id,
+        borrower_cid,
+        borrower_name,
+        returned_at
+      FROM borrow_return
+      WHERE id = ?
       FOR UPDATE`,
       [borrowId],
     );
@@ -1267,21 +1403,56 @@ app.post('/api/borrows/:id/return', async (req, res) => {
       });
     }
 
+    const itemRows = await conn.query(
+      `SELECT
+        bri.asset_id AS assetId,
+        a.asset_code AS assetCode,
+        a.name AS assetName,
+        a.brand,
+        bri.quantity
+      FROM borrow_return_items AS bri
+      INNER JOIN inventory_assets AS a
+        ON a.id = bri.asset_id
+      WHERE bri.borrow_return_id = ?
+      ORDER BY bri.id ASC
+      FOR UPDATE`,
+      [borrowId],
+    );
+
+    const assets = itemRows.length > 0
+      ? itemRows.map((item) => ({
+        id: Number(item.assetId),
+        assetCode: item.assetCode,
+        name: item.assetName,
+        brand: item.brand || null,
+        quantity: Number(item.quantity || 1),
+      }))
+      : [{
+        id: Number(borrow.asset_id),
+        assetCode: null,
+        name: null,
+        brand: null,
+        quantity: 1,
+      }];
+
+    const assetIds = assets.map((asset) => asset.id);
+    const placeholders = assetIds.map(() => '?').join(', ');
+
     await conn.query(
       `UPDATE borrow_return
-       SET
-         returned_at = CURRENT_TIMESTAMP,
-         received_by_cid = ?,
-         return_note = ?
-       WHERE id = ?`,
+      SET
+        returned_at = CURRENT_TIMESTAMP,
+        received_by_cid = ?,
+        return_note = ?
+      WHERE id = ?`,
       [receivedByCid, returnNote, borrowId],
     );
 
     await conn.query(
       `UPDATE inventory_assets
-       SET status = 'AVAILABLE'
-       WHERE id = ?`,
-      [borrow.asset_id],
+      SET status = 'AVAILABLE'
+      WHERE id IN (${placeholders})`,
+      assetIds,
     );
 
     await conn.commit();
@@ -1289,13 +1460,16 @@ app.post('/api/borrows/:id/return', async (req, res) => {
 
     res.json({
       id: borrowId,
-      assetId: Number(borrow.asset_id),
-      assetCode: borrow.asset_code,
-      assetName: borrow.asset_name,
+      assetId: assets[0].id,
+      assetCode: assets[0].assetCode,
+      assetName: assets[0].name,
+      assets,
+
       borrowerCid: borrow.borrower_cid,
       borrowerName: borrow.borrower_name,
       receivedByCid,
       returnNote,
+
       status: 'AVAILABLE',
       message: 'บันทึกการคืนครุภัณฑ์สำเร็จ',
     });

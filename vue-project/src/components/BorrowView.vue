@@ -124,16 +124,44 @@ const openPrintForm = (record) => {
           >
             <!-- อุปกรณ์ -->
             <td class="p-4">
-              <div class="font-medium text-slate-800">
-                {{ record.assetName || '-' }}
-              </div>
+              <template v-if="Array.isArray(record.assets) && record.assets.length > 0">
+                <div
+                  v-for="(asset, index) in record.assets"
+                  :key="asset.id || `${record.id}-${index}`"
+                  :class="index > 0 ? 'mt-2 border-t border-slate-100 pt-2' : ''"
+                >
+                  <div class="font-medium text-slate-800">
+                    {{ asset.name || asset.assetName || '-' }}
+                  </div>
 
-              <div
-                v-if="record.assetCode"
-                class="mt-0.5 text-xs text-slate-400"
-              >
-                {{ record.assetCode }}
-              </div>
+                  <div
+                    v-if="asset.assetCode"
+                    class="mt-0.5 text-xs text-slate-400"
+                  >
+                    {{ asset.assetCode }}
+                  </div>
+                </div>
+
+                <div
+                  v-if="record.assets.length > 1"
+                  class="mt-2 text-xs font-medium text-indigo-600"
+                >
+                  รวม {{ record.assets.length }} อุปกรณ์
+                </div>
+              </template>
+
+              <template v-else>
+                <div class="font-medium text-slate-800">
+                  {{ record.assetName || '-' }}
+                </div>
+
+                <div
+                  v-if="record.assetCode"
+                  class="mt-0.5 text-xs text-slate-400"
+                >
+                  {{ record.assetCode }}
+                </div>
+              </template>
             </td>
 
             <!-- ผู้ยืม -->
